@@ -4,6 +4,9 @@ import { app, desktopCapturer, session } from 'electron';
 import { initContext } from './context';
 import { registerFeatures } from './features';
 import { startAsr } from './features/engines';
+import { restoreMediaAfterCrash } from './features/mediaDuck';
+import { startWatchers } from './watchers';
+import { stopUia } from './native/uia';
 import { setupShortcuts } from './shortcuts';
 import { createTray } from './tray';
 import { ensureCapture, ensureHub, ensureStatus, getWindow } from './windows';
@@ -30,6 +33,8 @@ if (!app.requestSingleInstanceLock()) {
       void desktopCapturer.getSources({ types: ['screen'] }).then((sources) => cb({ video: sources[0], audio: 'loopback' }));
     });
     registerFeatures();
+    restoreMediaAfterCrash();
+    startWatchers();
     setupShortcuts();
     void startAsr();
     ensureCapture();
@@ -55,6 +60,7 @@ if (!app.requestSingleInstanceLock()) {
       // best effort: stop whisper server child process
       initContext().asr.stop();
       initContext().hotkeys.stop();
+      stopUia();
     } catch {
       // context may not be initialized if quitting during startup
     }

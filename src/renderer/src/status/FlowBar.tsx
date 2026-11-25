@@ -136,6 +136,7 @@ export function FlowBar() {
         </div>
       )}
 
+      {active && settings.creatorMode && <div className={s.creator}>Dictating with Murmur</div>}
       <div
         className={cx(s.pill, expanded && s.pillExpanded, active && s.pillActive, done && s.pillDone, phase === 'error' && s.pillError)}
         onMouseEnter={() => setHover(true)}

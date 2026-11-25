@@ -2,6 +2,7 @@
 import type { CleanupLevel, StyleContext, StyleTone } from '@shared/types';
 import { formatDictation, type PipelineResult } from '@shared/textPipeline';
 import { styleContextFor } from '@shared/apps';
+import { applyFileTags, applyIdentifiers, extractFileNames, extractIdentifiers, isIdeApp, supportsFileTags } from '@shared/vibeCoding';
 import { getCtx } from '../context';
 import { nowIso } from '../db';
 
@@ -55,7 +56,20 @@ export function markPhrasesUsed(phrases: string[]): void {
   for (const p of phrases) db.run('UPDATE dictionary SET frequencyUsed = frequencyUsed + 1, lastUsed = ? WHERE phrase = ? COLLATE NOCASE', ts, p);
 }
 
-export async function formatForApp(raw: string, app: { processName: string; title: string }, opts: { allowLlm: boolean } = { allowLlm: true }): Promise<FormatOutcome> {
+export interface FormatOptions {
+  allowLlm?: boolean;
+  /** Text of the focused field (context awareness), used for IDE identifiers and file names. */
+  contextText?: string;
+}
+
+/** Words worth biasing whisper toward from the focused app (IDE identifiers/files, or recent field text). */
+export function contextPrompt(app: { processName: string; title: string }, contextText: string): string {
+  if (!contextText && !isIdeApp(app.processName, app.title)) return '';
+  if (isIdeApp(app.processName, app.title)) return [...extractFileNames(app.title, contextText), ...extractIdentifiers(contextText, 40)].join(', ').slice(0, 400);
+  return contextText.slice(-300);
+}
+
+export async function formatForApp(raw: string, app: { processName: string; title: string }, opts: FormatOptions = {}): Promise<FormatOutcome> {
   const { settings, llm } = getCtx();
   const s = settings.get();
   const styleContext = styleContextFor(app.processName, app.title, s.styles);
@@ -70,9 +84,16 @@ export async function formatForApp(raw: string, app: { processName: string; titl
     isEmailContext: styleContext === 'email',
     pressEnterCommand: s.pressEnterCommandEnabled,
   });
+  if (isIdeApp(app.processName, app.title)) {
+    const ctx = opts.contextText ?? '';
+    if (s.vibeCoding.variableRecognition && ctx) local.text = applyIdentifiers(local.text, extractIdentifiers(ctx));
+    // dictionary substitutions win over file tags to avoid conflicting rewrites
+    if (s.vibeCoding.fileTagging && supportsFileTags(app.processName, app.title) && local.numDictionaryReplacements === 0)
+      local.text = applyFileTags(local.text, extractFileNames(app.title, ctx));
+  }
   const out: FormatOutcome = { ...local, styleContext, cleanupLevel: s.cleanupLevel, llmUsed: false, llmError: null };
   const needsLlm = (s.cleanupLevel === 'medium' || s.cleanupLevel === 'high' || tone === 'gen_z') && s.llm.provider !== 'none';
-  if (!opts.allowLlm || !needsLlm || !local.text) return out;
+  if (opts.allowLlm === false || !needsLlm || !local.text) return withSignature(out);
   try {
     const guide = s.cleanupLevel === 'medium' || s.cleanupLevel === 'high' ? LEVEL_GUIDE[s.cleanupLevel] : 'Light cleanup only: keep wording, fix grammar.';
     const text = await llm({
@@ -91,5 +112,12 @@ export async function formatForApp(raw: string, app: { processName: string; titl
   } catch (e) {
     out.llmError = e instanceof Error ? e.message : String(e);
   }
-  return out;
+  return withSignature(out);
+}
+
+/** "Written with Murmur" / "Spoken with Murmur" footer for dictated emails when enabled. */
+function withSignature(out: FormatOutcome): FormatOutcome {
+  const sig = getCtx().settings.get().emailSignature;
+  if (!sig.enabled || out.styleContext !== 'email' || !out.text) return out;
+  return { ...out, text: `${out.text}\n\n${sig.option === 'spoken' ? 'Spoken' : 'Written'} with Murmur` };
 }

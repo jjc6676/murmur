@@ -158,3 +158,16 @@
 .contentFull {
   left: 8px;
 }
+
+.sidebarScroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  margin: 0 -6px;
+  padding: 0 6px;
+}
+.sidebarScroll::-webkit-scrollbar {
+  width: 6px;
+}

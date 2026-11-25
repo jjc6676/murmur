@@ -63,7 +63,9 @@ export function ScratchpadPage() {
         <div>
           <h2>For quick thoughts you want to come back to</h2>
           <p>Drop a to-do list, polish a message before you send it, brain dump an idea. Scratchpad is your safe space to save, create, and explore.</p>
-          <Button onClick={() => void newNote()}>Start new note</Button>
+          <Button variant="light" onClick={() => void newNote()}>
+            Start new note
+          </Button>
         </div>
         <div className={styles.heroArt} aria-hidden="true"><span /><span /><span /></div>
       </section>

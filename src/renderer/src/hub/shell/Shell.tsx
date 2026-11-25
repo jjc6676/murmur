@@ -122,6 +122,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <button type="button" className={s.logo} onClick={() => navigate('/')} aria-label="Murmur home">
           <Logo />
         </button>
+        <div className={s.sidebarScroll}>
         <nav aria-label="Main navigation" className={s.nav}>
           {NAV.map((n) => (
             <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => cx(s.navItem, (isActive || (n.to === '/notetaker' && location.pathname.startsWith('/notetaker'))) && s.navActive)}>
@@ -132,6 +133,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </nav>
         <div className={s.spacer} />
         <NotetakerChecklist />
+        </div>
         <div className={s.divider} />
         <nav aria-label="Secondary navigation" className={s.nav}>
           <button type="button" className={s.navItem} onClick={() => setDialog('invite')}>

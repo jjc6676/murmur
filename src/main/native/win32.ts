@@ -6,7 +6,6 @@ const user32 = koffi.load('user32.dll');
 const kernel32 = koffi.load('kernel32.dll');
 
 const GetForegroundWindow = user32.func('void* __stdcall GetForegroundWindow()');
-const SetForegroundWindow = user32.func('bool __stdcall SetForegroundWindow(void* hWnd)');
 const GetWindowTextW = user32.func('int __stdcall GetWindowTextW(void* hWnd, _Out_ uint16_t* lpString, int nMaxCount)');
 const GetWindowThreadProcessId = user32.func('uint32_t __stdcall GetWindowThreadProcessId(void* hWnd, _Out_ uint32_t* lpdwProcessId)');
 const OpenProcess = kernel32.func('void* __stdcall OpenProcess(uint32_t dwDesiredAccess, bool bInheritHandle, uint32_t dwProcessId)');
@@ -35,6 +34,7 @@ const INPUT = koffi.struct('INPUT', {
   u: koffi.union({ mi: MOUSEINPUT, ki: KEYBDINPUT }),
 });
 const SendInput = user32.func('uint32_t __stdcall SendInput(uint32_t cInputs, INPUT* pInputs, int cbSize)');
+const GetAsyncKeyState = user32.func('int16_t __stdcall GetAsyncKeyState(int vKey)');
 
 const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 const INPUT_KEYBOARD = 1;
@@ -86,9 +86,44 @@ export function getForegroundApp(): ForegroundApp {
   return { hwnd: koffi.address(hwnd), exe: exe.toLowerCase(), processName: exe.replace(/\.exe$/i, '').toLowerCase(), title };
 }
 
+const SetForegroundWindowAddr = user32.func('bool __stdcall SetForegroundWindow(intptr_t hWnd)');
+const ShowWindowAddr = user32.func('bool __stdcall ShowWindow(intptr_t hWnd, int nCmdShow)');
+const IsIconicAddr = user32.func('bool __stdcall IsIconic(intptr_t hWnd)');
+const IsWindowVisibleAddr = user32.func('bool __stdcall IsWindowVisible(intptr_t hWnd)');
+const GetWindowTextAddr = user32.func('int __stdcall GetWindowTextW(intptr_t hWnd, _Out_ uint16_t* lpString, int nMaxCount)');
+const EnumWindowsProc = koffi.proto('bool __stdcall EnumWindowsProc(intptr_t hwnd, intptr_t lParam)');
+const EnumWindows = user32.func('bool __stdcall EnumWindows(EnumWindowsProc* cb, intptr_t lParam)');
+
+/**
+ * Bring a window to the foreground. Windows only lets the process that received the last input do this,
+ * so a harmless unassigned key is injected first (same trick AutoHotkey uses).
+ */
 export function focusWindow(hwnd: bigint | number | null): void {
   if (hwnd === null) return;
-  SetForegroundWindow(koffi.as(hwnd, 'void*'));
+  if (IsIconicAddr(hwnd)) ShowWindowAddr(hwnd, 9 /* SW_RESTORE */);
+  send([key(0xe8, false), key(0xe8, true)]);
+  SetForegroundWindowAddr(hwnd);
+}
+
+/** Visible top-level windows whose title contains `needle` (case-insensitive). */
+export function findWindows(needle: string): { hwnd: bigint | number; title: string }[] {
+  const out: { hwnd: bigint | number; title: string }[] = [];
+  const n = needle.toLowerCase();
+  const cb = koffi.register((hwnd: bigint | number) => {
+    if (IsWindowVisibleAddr(hwnd)) {
+      const buf = new Uint16Array(512);
+      const len = GetWindowTextAddr(hwnd, buf, buf.length);
+      const title = String.fromCharCode(...buf.subarray(0, len));
+      if (title.toLowerCase().includes(n)) out.push({ hwnd, title });
+    }
+    return true;
+  }, koffi.pointer(EnumWindowsProc));
+  try {
+    EnumWindows(cb, 0);
+  } finally {
+    koffi.unregister(cb);
+  }
+  return out;
 }
 
 function key(vk: number, up: boolean) {
@@ -112,9 +147,14 @@ export function keyUp(vk: number): void {
   send([key(vk, true)]);
 }
 
+// left/right variants: Ctrl, Alt (menu), Shift, Win
+const MODIFIER_VKS = [0xa2, 0xa3, 0xa4, 0xa5, 0xa0, 0xa1, 0x5b, 0x5c];
+
 /** Release modifiers the user may still be physically holding (hotkey) so a synthetic paste isn't corrupted. */
 export function releaseModifiers(): void {
-  send([VK.CONTROL, VK.MENU, VK.SHIFT, VK.LWIN].map((m) => key(m, true)));
+  // Only release keys that are actually down: a stray Alt key-up puts many apps into menu (KeyTips) mode.
+  const held = MODIFIER_VKS.filter((vk) => (GetAsyncKeyState(vk) & 0x8000) !== 0);
+  if (held.length) send(held.map((vk) => key(vk, true)));
 }
 
 /** Type text directly as Unicode key events (fallback when clipboard paste is blocked). */
@@ -129,4 +169,8 @@ export function typeUnicode(text: string): void {
     }
   }
   if (inputs.length) send(inputs);
+}
+
+export function minimizeWindow(hwnd: bigint | number): void {
+  ShowWindowAddr(hwnd, 6 /* SW_MINIMIZE */);
 }

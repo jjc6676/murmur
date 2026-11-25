@@ -2,6 +2,7 @@
 import { BrowserWindow, ipcMain, nativeTheme, screen, shell } from 'electron';
 import { join } from 'node:path';
 import { getCtx } from './context';
+import { paths } from './paths';
 
 export type WindowKind = 'hub' | 'status' | 'scratchpad' | 'recorder' | 'capture';
 
@@ -19,7 +20,7 @@ function base(kind: WindowKind, opts: Electron.BrowserWindowConstructorOptions):
   const win = new BrowserWindow({
     show: false,
     backgroundColor: kind === 'status' || kind === 'capture' ? '#00000000' : nativeTheme.shouldUseDarkColors && getCtx().settings.get().theme !== 'light' ? '#1a1a1a' : '#f5f4f0',
-    icon: join(__dirname, '../../resources/icon.png'),
+    icon: join(paths.resources, 'icon.png'),
     ...opts,
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),

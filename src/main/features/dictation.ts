@@ -9,11 +9,14 @@ import { getCtx } from '../context';
 import { broadcast, handle } from '../ipc';
 import { newId } from '../db';
 import { runTransformText } from './transforms';
+import { duckMedia, unduckMedia } from './mediaDuck';
 import { paths } from '../paths';
 import { getForegroundApp, type ForegroundApp } from '../native/win32';
 import { copySelection, pasteText, waitForModifiersReleased } from '../native/textio';
 import { pcm16ToWav, speechSeconds, wavToPcm16 } from '../audio/wav';
-import { asrPrompt, formatForApp, markPhrasesUsed } from './formatting';
+import { asrPrompt, contextPrompt, formatForApp, markPhrasesUsed } from './formatting';
+import { readFocusedText } from '../native/uia';
+import { scheduleEditLearning } from './learning';
 import { getHistoryRow, rowToHistory } from './history';
 import { showNudge, showToast } from '../toasts';
 import { ensureCapture } from '../windows';
@@ -33,6 +36,8 @@ interface Session {
   ended: PromiseWithResolvers<string | null>;
   warnTimer: NodeJS.Timeout;
   maxTimer: NodeJS.Timeout;
+  /** Focused-field text at start (context awareness); '' when disabled/unavailable. */
+  context: Promise<string>;
 }
 
 let state: DictationState = { phase: 'resting', mode: null, startedAt: null, level: 0, message: null, lastEntryId: null, polishName: null };
@@ -80,6 +85,7 @@ export function startDictation(mode: DictationMode): void {
     stopping: false,
     cancelled: false,
     ended,
+    context: s.contextAwareness ? readFocusedText().then((r) => (r.ok ? r.value : '')) : Promise.resolve(''),
     warnTimer: setTimeout(() => showToast({ key: 'DictationDurationWarning', title: 'Less than a minute left', body: 'Murmur supports up to 20 minutes per session.', target: 'bar', tone: 'warning' }), (MAX_SECONDS - 60) * 1000),
     maxTimer: setTimeout(() => {
       showToast({ key: 'DictationMaxDurationReached', title: 'Murmur supports up to 20 minutes per session', body: 'Your text is being inserted now.', target: 'bar', tone: 'warning' });
@@ -88,6 +94,10 @@ export function startDictation(mode: DictationMode): void {
   };
   setState({ phase: mode === 'popo' ? 'active_popo' : 'active_ptt', mode, startedAt: session.startedAt, level: 0, message: null });
   playSound('start');
+  // let the start chime play before silencing output
+  setTimeout(() => {
+    if (session && !session.stopping) duckMedia();
+  }, 150);
   ensureCapture().webContents.send('evt:capture:command', { kind: 'dictation', action: 'start', deviceId: s.micDeviceId });
 }
 
@@ -100,6 +110,7 @@ export function stopDictation(): void {
   clearTimeout(cur.maxTimer);
   const heldMs = Date.now() - cur.startedAt;
   ensureCapture().webContents.send('evt:capture:command', { kind: 'dictation', action: 'stop', deviceId: '' });
+  unduckMedia();
   playSound('stop');
   if (cur.mode === 'ptt' && heldMs < TAP_MS) {
     cur.cancelled = true;
@@ -132,6 +143,7 @@ export function cancelDictation(): void {
   ensureCapture().webContents.send('evt:capture:command', { kind: 'dictation', action: 'stop', deviceId: '' });
   session = null;
   pendingCancelled.add(cur);
+  unduckMedia();
   setState({ phase: 'resting', mode: null, startedAt: null, level: 0 });
   void cur.ended.promise.then(() => {
     const pcm = Buffer.concat(cur.chunks);
@@ -186,12 +198,13 @@ function saveHistory(
   return rowToHistory(row);
 }
 
-async function transcribe(pcm: Buffer): Promise<{ text: string; language: string }> {
+async function transcribe(pcm: Buffer, extraPrompt = ''): Promise<{ text: string; language: string }> {
   const { asr, settings } = getCtx();
   const s = settings.get();
   await asr.start(s.asr.model, s.asr.threads);
   const lang = s.autoDetectLanguage ? 'auto' : (s.languages[0] ?? 'en');
-  const r = await asr.transcribe(pcm16ToWav(pcm), { language: lang, prompt: asrPrompt() || undefined });
+  const prompt = [asrPrompt(), extraPrompt].filter(Boolean).join(', ');
+  const r = await asr.transcribe(pcm16ToWav(pcm), { language: lang, prompt: prompt || undefined });
   return { text: r.text, language: r.language };
 }
 
@@ -222,7 +235,8 @@ async function processSession(s: Session): Promise<void> {
     let asrText: string;
     let language: string;
     try {
-      ({ text: asrText, language } = await transcribe(pcm));
+      const ctxText = await s.context;
+      ({ text: asrText, language } = await transcribe(pcm, contextPrompt({ processName: s.target.processName, title: s.target.title }, ctxText)));
     } catch (e) {
       const entry = saveHistory(s, { status: 'failed', asrText: '', formattedText: '', pcm, language: 'en', latencyMs: Date.now() - t0, error: e instanceof Error ? e.message : String(e) });
       showToast({ key: 'TranscriptionError', title: "Something's not right", body: 'Transcription failed. Your audio is saved.', tone: 'error', target: 'bar', actions: [{ id: 'retry', label: 'Retry' }] }, (a) => {
@@ -289,11 +303,23 @@ async function deliverCommand(s: Session, instruction: string, language: string,
   }, 1600);
 }
 
+/** Stacked messages: split on paragraphs, else into groups of up to two sentences. */
+function splitMessages(text: string): string[] {
+  const paras = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (paras.length > 1) return paras;
+  const sentences = text.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g)?.map((x) => x.trim()).filter(Boolean) ?? [text];
+  if (sentences.length < 3) return [text];
+  const out: string[] = [];
+  for (let i = 0; i < sentences.length; i += 2) out.push(sentences.slice(i, i + 2).join(' '));
+  return out;
+}
+
 async function deliver(s: Session, asrText: string, language: string, pcm: Buffer, t0: number): Promise<HistoryEntry> {
   const { settings } = getCtx();
   const st = settings.get();
   const app = { processName: s.target.processName, title: s.target.title };
-  const formatted = await formatForApp(asrText, app);
+  const contextText = await s.context;
+  const formatted = await formatForApp(asrText, app, { contextText });
   let finalText = formatted.text;
   // Auto Apply After Dictation: run the selected transform before pasting.
   if (st.transformsEnabled && st.autoApplyAfterDictation.active && finalText) {
@@ -335,8 +361,14 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
     });
   } else {
     await waitForModifiersReleased((k) => getCtx().hotkeys.isHeld(k));
-    await pasteText(finalText, { target: s.target, pressEnter: formatted.pressEnter });
+    const stacked = st.stackedMessages && (formatted.styleContext === 'work' || formatted.styleContext === 'personal') ? splitMessages(finalText) : [finalText];
+    for (let i = 0; i < stacked.length; i++) {
+      // stacked messages: send every chunk but the last as its own message
+      const last = i === stacked.length - 1;
+      await pasteText(stacked[i], { target: s.target, pressEnter: last ? formatted.pressEnter : true });
+    }
     playSound('paste');
+    if (st.autoAddToDictionary) scheduleEditLearning(entry.id, stacked.join('\n'), s.target);
     if (isOwnWindow) showNudge('PostOnboardingInAppDictation', { title: 'Try using Murmur in another app!', body: 'Murmur works anywhere you type.', target: 'bar' }, { max: 3 });
   }
   if (formatted.llmError) {
@@ -373,6 +405,7 @@ export async function retryHistory(id: string, paste: boolean): Promise<HistoryE
     ended: Promise.withResolvers<string | null>(),
     warnTimer: setTimeout(() => {}, 0),
     maxTimer: setTimeout(() => {}, 0),
+    context: Promise.resolve(''),
   };
   if (!text.trim()) return saveHistory(s, { status: 'empty', asrText: '', formattedText: '', pcm, language, latencyMs: Date.now() - t0 });
   if (paste) return deliver(s, text, language, pcm, t0);

@@ -1,0 +1,40 @@
+appId: com.murmur.app
+productName: Murmur
+copyright: Copyright © 2026 Jason
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+asar: true
+asarUnpack:
+  - node_modules/uiohook-napi/**
+  - node_modules/koffi/**
+extraResources:
+  - from: resources/whisper
+    to: whisper
+  - from: resources/icon.png
+    to: icon.png
+  - from: resources/tray.png
+    to: tray.png
+  - from: scripts/murmur-mcp.mjs
+    to: murmur-mcp.mjs
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+  executableName: Murmur
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Murmur
+  artifactName: Murmur-Setup-${version}.exe
+  uninstallDisplayName: Murmur
+npmRebuild: false

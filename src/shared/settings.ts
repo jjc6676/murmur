@@ -205,7 +205,7 @@ export const DEFAULT_SETTINGS: Settings = {
   flowBarDock: 'bottom',
   scratchpadInFlowBar: false,
   sounds: true,
-  muteAudioWhileDictating: false,
+  muteAudioWhileDictating: true,
   pauseMediaWhileDictating: false,
   notifications: { suggestions: true, announcements: true, milestones: true, processingDelay: true },
   typingReminder: { mode: 'disabled', categories: [], mutedUntil: 0 },
