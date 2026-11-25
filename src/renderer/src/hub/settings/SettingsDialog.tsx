@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   Bot,
+  Check,
   ChevronLeft,
   Code2,
   CreditCard,
@@ -8,6 +9,7 @@ import {
   Link2,
   Mic,
   Puzzle,
+  RefreshCw,
   Settings2,
   Shield,
   SlidersHorizontal,
@@ -417,11 +419,40 @@ function AccountSection({ s, patch }: SectionProps) {
 }
 
 function TeamSection() {
-  return <><SectionTitle>Team</SectionTitle><OfflineNotice/><div className={styles.heroCard}><Users size={40}/><h2>Bring your team to Murmur</h2><p>Share a dictionary, snippets, and writing conventions across your workspace.</p><Button disabled>Create team</Button></div><SettingGroup title="Team members"><SettingRow title="Invite teammates" description="Team invites and organization management require a cloud service."><Button disabled variant="outline">Invite people</Button></SettingRow><SettingRow title="Members and roles" description="Member, Admin, IT admin, and Super admin roles are available in cloud workspaces." /></SettingGroup></>;
+  const [emails, setEmails] = useState(['', '', '']);
+  const offline = () => toast('Teams require a cloud account — not available offline');
+  return <><SectionTitle>Team</SectionTitle><OfflineNotice/>
+    <div className={styles.teamInvite}>
+      <div className={styles.teamArt}><Users size={50}/><i/><i/><i/></div>
+      <div className={styles.teamForm}>
+        <h2>Invite your team to join you on Murmur</h2>
+        <p>Create a team to get a <strong>2-week pro trial</strong> and unlock team features!</p>
+        <div className={styles.emailList}>{emails.map((email, index) => <Input key={index} type="email" aria-label={`Teammate email ${index + 1}`} placeholder="teammate@company.com" value={email} onChange={(event) => setEmails((current) => current.map((item, i) => i === index ? event.target.value : item))}/>)}</div>
+        <button className={styles.textLink} onClick={() => setEmails((current) => [...current, ''])}>+ Add more</button>
+        <Button onClick={offline}>Continue</Button>
+      </div>
+    </div>
+    <div className={styles.settingsFooter}><button onClick={offline}>Team FAQ</button><span>More questions about teams? <button onClick={offline}>Contact us</button></span></div>
+  </>;
 }
 
 function PlansSection() {
-  return <><SectionTitle>Plans and Billing</SectionTitle><OfflineNotice/><div className={styles.planGrid}><div className={styles.plan}><Badge>Current plan</Badge><h2>Local</h2><strong>$0 / month</strong><ul><li>Unlimited local dictation</li><li>100+ languages with multilingual Whisper</li><li>Local Notetaker history</li><li>Your own Claude or Codex CLI</li></ul><Button disabled>Current plan</Button></div><div className={styles.plan}><Badge tone="accent">Offline-first</Badge><h2>Murmur</h2><strong>No subscription</strong><p>There are no paid upgrades or billing details. Everything runs on your computer.</p></div></div></>;
+  const [cycle, setCycle] = useState<'monthly' | 'annual'>('annual');
+  const offline = () => toast('Plans and billing require a cloud account — not available offline');
+  return <><div className={styles.headingLine}><SectionTitle>Plans and Billing</SectionTitle><button className={styles.refresh} aria-label="Refresh plans" onClick={offline}><RefreshCw size={17}/></button></div><OfflineNotice/>
+    <div className={styles.billingToggle}><Segmented value={cycle} options={[{ value: 'monthly', label: 'Monthly' }, { value: 'annual', label: 'Annual' }]} onChange={setCycle}/></div>
+    <div className={styles.planGrid}>
+      <PlanCard kicker="For individuals" name="Free" price="$0/mo" action={<Button disabled variant="outline">Current plan</Button>} features={['Speech-to-text in any app, 100+ languages', 'Dictation on Mac, Windows, iOS, and Android', 'Learns your names and jargon', 'Dictionary and snippets', 'Limited Notetaker history', 'Use your meeting notes in Claude and ChatGPT']}/>
+      <PlanCard kicker="For individuals & teams" name="Pro" badge="Popular" price={cycle === 'annual' ? '$12 per user/mo' : '$15 per user/mo'} discount={cycle === 'annual' ? '-20%' : undefined} action={<Button onClick={offline}>Upgrade</Button>} intro="Everything in Free, plus:" features={['Unlimited dictations', 'Unlimited notetaker access', 'Shared dictionary and snippets', 'Shared team workspace', 'Centralized billing and user management', 'Team usage analytics', 'Priority support', 'Early access to new features']}/>
+      <PlanCard kicker="For teams with advanced needs" name="Growth & Enterprise" price={cycle === 'annual' ? 'from $18 per user/mo' : 'from $23 per user/mo'} discount={cycle === 'annual' ? '-21%' : undefined} action={<Button onClick={offline}>Upgrade</Button>} features={['SSO, SCIM, and domain capture', 'Audit logs and managed deployment (MDM)', 'Org-wide HIPAA enforcement with a signed BAA', 'Admin control over model training', 'Individual usage reporting', 'Dedicated support manager', 'Invoicing and PO billing', 'Custom legal terms']}/>
+    </div>
+    <button className={styles.promo} onClick={offline}>Add promo code +</button>
+    <div className={styles.settingsFooter}><button onClick={offline}>Plans and billing FAQ</button><span>Questions about billing? <button onClick={offline}>Contact us</button></span></div>
+  </>;
+}
+
+function PlanCard({ kicker, name, badge, price, discount, action, intro, features }: { kicker: string; name: string; badge?: string; price: string; discount?: string; action: ReactNode; intro?: string; features: string[] }) {
+  return <article className={styles.plan}><span className={styles.planKicker}>{kicker}</span><div className={styles.planName}><h2>{name}</h2>{badge && <Badge tone="accent">{badge}</Badge>}</div><div className={styles.planPrice}><strong>{price}</strong>{discount && <Badge tone="success">{discount}</Badge>}</div>{action}{intro && <b className={styles.planIntro}>{intro}</b>}<ul>{features.map((feature) => <li key={feature}><Check size={14}/>{feature}</li>)}</ul></article>;
 }
 
 function DataSection({ s, patch }: SectionProps) {

@@ -67,6 +67,8 @@ test('onboarding completes and settings persist across every section', async () 
     await screenshot(hub, 'murmur-settings-general.png');
     await hub.getByRole('button', { name: 'Dark' }).click();
     await expect.poll(() => hub.locator('html').getAttribute('data-theme')).toBe('dark');
+    await hub.getByRole('button', { name: 'Light' }).click();
+    await expect.poll(() => hub.locator('html').getAttribute('data-theme')).toBe('light');
 
     const sections: { nav: string; title: string; image: string }[] = [
       { nav: 'System', title: 'System', image: 'system' },

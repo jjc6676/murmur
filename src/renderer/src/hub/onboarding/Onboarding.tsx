@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, ChevronLeft, Keyboard, Lock, Mic, MonitorUp, Sparkles, WandSparkles } from 'lucide-react';
+import { Check, ChevronLeft, Keyboard, Lock, Mic, MonitorUp, Sparkles } from 'lucide-react';
 import type { StyleContext, StyleTone } from '@shared/types';
 import type { Settings } from '@shared/settings';
 import { applyTone, capitalize, ensureTerminalPunctuation } from '@shared/textPipeline';
 import { api, useEvent } from '../../lib/api';
 import { usePatchSettings, useSettings } from '../../lib/settings';
 import { Button, Checkbox, Input, Kbd, Segmented } from '../../ui';
+import { Logo } from '../shell/Logo';
 import styles from './Onboarding.module.css';
 
 type Stage = 'signup' | 'permissions' | 'setup' | 'learn' | 'personalize';
@@ -184,5 +185,5 @@ export function Onboarding() {
   const next = () => { if (substep < maxSubstep) setSubstep((x) => x + 1); else if (stageIndex < STAGES.length - 1) goStage(STAGES[stageIndex + 1].id); };
   const back = () => { if (substep > 0) setSubstep((x) => x - 1); else if (stageIndex > 0) goStage(STAGES[stageIndex - 1].id); };
   const body = stage === 'signup' ? <SignupStep substep={substep} next={next}/> : stage === 'permissions' ? <PermissionsStep next={next}/> : stage === 'setup' ? <SetupStep substep={substep} next={next}/> : stage === 'learn' ? <LearnStep next={next}/> : <PersonalizeStep/>;
-  return <div className={styles.root}><header className={styles.rail}><div className={styles.wordmark}><WandSparkles size={20}/> Murmur</div><nav aria-label="Onboarding progress">{STAGES.map((item, index) => <span key={item.id} className={index <= stageIndex ? styles.current : ''}>{index < stageIndex ? <Check size={14}/> : null}{item.label}{index < STAGES.length - 1 && <b>›</b>}</span>)}</nav>{(stageIndex > 0 || substep > 0) ? <button aria-label="Back" className={styles.back} onClick={back}><ChevronLeft/> Back</button> : <span/>}</header>{body}</div>;
+  return <div className={styles.root}><header className={styles.rail}><div className={styles.wordmark}><Logo size={20}/></div><nav aria-label="Onboarding progress">{STAGES.map((item, index) => <span key={item.id} className={index <= stageIndex ? styles.current : ''}>{index < stageIndex ? <Check size={14}/> : null}{item.label}{index < STAGES.length - 1 && <b>›</b>}</span>)}</nav>{(stageIndex > 0 || substep > 0) ? <button aria-label="Back" className={styles.back} onClick={back}><ChevronLeft/> Back</button> : <span/>}</header>{body}</div>;
 }
