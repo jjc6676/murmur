@@ -41,9 +41,10 @@ test('offers auto-start and plays the first local speaker segment', async () => 
   await hub.getByRole('link', { name: /Test meeting/ }).first().click();
   await hub.getByRole('tab', { name: 'Transcript' }).click();
   await expect(hub.getByText(/Translated from ENGLISH\. Original available\./).first()).toBeVisible();
-  const play = hub.getByRole('button', { name: /Play Speaker 1 clip/ }).first();
+  // Refinement keeps source attribution (mic = You, system audio = Them); the fake device feeds both streams.
+  const play = hub.getByRole('button', { name: /Play (You|Them) clip/ }).first();
   await play.click();
-  await expect(hub.getByRole('button', { name: /Stop Speaker 1 clip/ }).first()).toBeVisible();
+  await expect(hub.getByRole('button', { name: /Stop (You|Them) clip/ }).first()).toBeVisible();
 
   await app.close();
 });

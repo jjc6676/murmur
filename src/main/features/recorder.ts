@@ -13,6 +13,7 @@ import { generateMeetingSummary } from '../meetings/summary';
 import { splitRecorderWithMeeting } from '../meetings/split-screen';
 import { getMeeting, updateSearchable } from '../meetings/store';
 import { resolveMicDeviceId } from './engines';
+import { dropEchoSegments, isEcho } from '@shared/echo';
 
 const TRANSCRIBE_INTERVAL_MS = 10_000;
 const BYTES_PER_SECOND = 16_000 * 2;
@@ -145,12 +146,16 @@ async function flushSource(current: RecordingSession, sourceName: 'mic' | 'syste
   for (const part of result.segments.length ? result.segments : [{ start: 0, end: pcm.length / BYTES_PER_SECOND, text: result.text }]) {
     const text = part.text.trim();
     if (!text) continue;
+    const startSec = start / BYTES_PER_SECOND + part.start;
+    const endSec = start / BYTES_PER_SECOND + part.end;
+    // Mic picking up the speakers: skip if it repeats remote speech already transcribed (final pass re-checks).
+    if (isEcho({ speaker, start: startSec, end: endSec, text }, current.segments)) continue;
     const segment: TranscriptSegment = {
       id: newId(),
       speaker,
       speakerName,
-      start: start / BYTES_PER_SECOND + part.start,
-      end: start / BYTES_PER_SECOND + part.end,
+      start: startSec,
+      end: endSec,
       text,
       edited: false,
       translatedText: await translate(text),
@@ -387,26 +392,36 @@ export async function stopRecording(reason: StopReason = 'manual'): Promise<Reco
     try {
       const settings = getCtx().settings.get();
       await getCtx().asr.start(settings.asr.model, settings.asr.threads);
-      const refined = await getCtx().asr.transcribe(pcm16ToWav(mixed), { language: settings.autoDetectLanguage ? 'auto' : (settings.languages[0] ?? 'en') });
-      detectLanguageNudges(refined.language);
+      const language = settings.autoDetectLanguage ? 'auto' : (settings.languages[0] ?? 'en');
+      // Re-transcribe each full source in one pass (better context than the live 10 s chunks) while keeping
+      // source attribution: the microphone is always "You", system audio is the other participants.
       const segments: TranscriptSegment[] = [];
-      for (const [index, part] of refined.segments.entries()) {
-        const text = part.text.trim();
-        if (!text) continue;
-        const participantIndex = current.participantNames.length ? index % current.participantNames.length : index;
-        segments.push({
-          id: newId(),
-          speaker: current.participantNames.length ? `participant-${participantIndex + 1}` : `speaker-${index + 1}`,
-          speakerName: current.participantNames[participantIndex] ?? `Speaker ${index + 1}`,
-          start: part.start,
-          end: part.end,
-          text,
-          edited: false,
-          translatedText: await translate(text),
-          sourceLanguage: refined.language || undefined,
-        });
+      let remoteIndex = 0;
+      for (const [sourceName, pcm] of [['mic', mic], ['system', system]] as const) {
+        if (speechSeconds(pcm) < 0.5) continue;
+        const refined = await getCtx().asr.transcribe(pcm16ToWav(pcm), { language });
+        detectLanguageNudges(refined.language);
+        for (const part of refined.segments) {
+          const text = part.text.trim();
+          if (!text) continue;
+          const names = current.participantNames;
+          const isYou = sourceName === 'mic';
+          segments.push({
+            id: newId(),
+            speaker: isYou ? 'you' : names.length ? `participant-${remoteIndex % names.length + 1}` : 'others',
+            speakerName: isYou ? 'You' : names.length ? names[remoteIndex % names.length] : 'Them',
+            start: part.start,
+            end: part.end,
+            text,
+            edited: false,
+            translatedText: await translate(text),
+            sourceLanguage: refined.language || undefined,
+          });
+          if (!isYou) remoteIndex++;
+        }
       }
-      if (segments.length) current.segments = segments;
+      segments.sort((a, b) => a.start - b.start);
+      if (segments.length) current.segments = dropEchoSegments(segments);
     } catch {
       // Keep the live transcript when the higher-quality local refinement pass fails.
     }
