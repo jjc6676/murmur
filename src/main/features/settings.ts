@@ -7,8 +7,9 @@ import { handle } from '../ipc';
 import { applyZoomToAll, positionStatus } from '../windows';
 
 function applySideEffects(next: Settings, prev: Settings | null): void {
-  if (!prev || next.launchAtLogin !== prev.launchAtLogin) {
-    if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: next.launchAtLogin, args: ['--hidden'] });
+  // only register auto-start once the user has finished onboarding (and when it changes afterwards)
+  if (!prev || next.launchAtLogin !== prev.launchAtLogin || next.onboardingComplete !== prev.onboardingComplete) {
+    if (app.isPackaged && next.onboardingComplete) app.setLoginItemSettings({ openAtLogin: next.launchAtLogin, args: ['--hidden'] });
   }
   if (!prev || next.zoom !== prev.zoom) applyZoomToAll(next.zoom);
   if (!prev || next.theme !== prev.theme) nativeTheme.themeSource = next.theme;

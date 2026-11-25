@@ -37,4 +37,5 @@ nsis:
   shortcutName: Murmur
   artifactName: Murmur-Setup-${version}.exe
   uninstallDisplayName: Murmur
+  runAfterFinish: false
 npmRebuild: false
