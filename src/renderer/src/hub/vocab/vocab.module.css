@@ -23,3 +23,4 @@
 .toggleRow { display:flex; align-items:center; justify-content:space-between; gap:20px; }
 .counter { text-align:right; color:var(--foreground-tertiary); font-size:12px; }
 @media (max-width:760px) { .toolbar { align-items:flex-start; gap:8px; } .tools { flex-wrap:wrap; justify-content:flex-end; } .search { width:160px; } }
+.syncStatus { margin: -8px 0 10px; color: var(--foreground-tertiary); font-size: 11px; }

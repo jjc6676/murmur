@@ -6,7 +6,7 @@ import { api, errorMessage, useEvent } from '../../lib/api';
 import { usePatchSettings, useSettings } from '../../lib/settings';
 import { Button, Card, Dialog, EmptyState, IconButton, Kbd, Page, PageHeader, Progress, SearchInput } from '../../ui';
 import { DictationList } from '../home/DictationList';
-import { toast } from '../state';
+import { toast, useHubUi } from '../state';
 import s from '../home/Home.module.css';
 
 const USE_CASES = [
@@ -18,6 +18,14 @@ const USE_CASES = [
   ['Write a document', 'Move long-form work forward.'],
   ['Prompt Cursor or Devin', 'Ship code hands-free.'],
   ['Something else', 'Explore Murmur anywhere you type.'],
+] as const;
+
+const HOME_BANNERS = [
+  { key: 'home-redesign', title: 'Home has a new look', body: 'Upcoming meetings, past notes, and recent dictations are now easier to reach.', action: 'Check it out' },
+  { key: 'default-hold-to-dictate', title: 'Hold down your shortcut to dictate', body: 'Murmur works in email, messages, docs, and anywhere else you type.', action: 'Got it' },
+  { key: 'snippets', title: 'Speak it once, reuse it anywhere', body: 'Snippets expand short spoken phrases into email, links, addresses, and prompts.', action: 'Try Snippets' },
+  { key: 'microphone-quiz', title: 'Working around other people?', body: 'Tune your microphone setup for clear dictation in shared spaces.', action: 'Setup guidance' },
+  { key: 'mouse-flow', title: 'Murmur using your mouse', body: 'Keyboards? Who needs them! Configure mouse buttons for dictation.', action: 'Learn more' },
 ] as const;
 
 const compactNumber = (value: number): string => value >= 1_000 ? `${(value / 1_000).toFixed(1)}K` : value.toLocaleString();
@@ -33,6 +41,8 @@ export function HomePage() {
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
   const [profileBuilding, setProfileBuilding] = useState(false);
   const [uses, setUses] = useState<string[]>([]);
+  const [welcomeDismissed, setWelcomeDismissed] = useState(false);
+  const [welcomeHelp, setWelcomeHelp] = useState('');
   const refresh = useCallback(() => {
     void Promise.all([
       api.history.list({ query: query || undefined, limit: 60 }),
@@ -67,18 +77,18 @@ export function HomePage() {
         <PageHeader title={<span className={s.homeHeader}>Welcome back{settings.profile.firstName ? `, ${settings.profile.firstName}` : ''}!</span>} />
         <div className={s.homeGrid}>
           <div className={s.mainColumn}>
-            {bannerVisible && (
-              <section className={s.banner}>
-                <div>
-                  <h2>Try Murmur in another app</h2>
-                  <p>Murmur works anywhere you type.</p>
-                </div>
-                <Button variant="light" size="sm">Get started</Button>
-                <IconButton label="Dismiss banner" className={s.bannerClose} onClick={() => void patch({ dismissedBanners: [...settings.dismissedBanners, bannerKey] })}>
-                  <X size={18} />
-                </IconButton>
+            {visibleBanners.slice(0, 2).map((banner) => (
+              <section className={s.banner} key={banner.key}>
+                <div><h2>{banner.title}</h2><p>{banner.body}</p></div>
+                <Button variant="light" size="sm" onClick={() => {
+                  if (banner.key === 'snippets') void api.app.openHub('/snippets');
+                  else if (banner.key === 'microphone-quiz') useHubUi.getState().openMicQuiz();
+                  else if (banner.key === 'mouse-flow') void api.app.openSettings('dictation');
+                  void dismissBanner(banner.key);
+                }}>{banner.action}</Button>
+                <IconButton label={`Dismiss ${banner.title}`} className={s.bannerClose} onClick={() => void dismissBanner(banner.key)}><X size={18} /></IconButton>
               </section>
-            )}
+            ))}
             <div className={s.dictationHeading}>
               <span>TODAY&apos;S DICTATIONS</span>
               <div className={s.searchControl}>
@@ -143,6 +153,15 @@ export function HomePage() {
           ))}
         </div>
         <div className={s.onboardingMock} aria-hidden="true"><div className={s.mockLine} /><div className={s.mockLine} /><div className={s.mockLine} /></div>
+      </Dialog>
+      <Dialog
+        open={resurrected}
+        onClose={() => setWelcomeDismissed(true)}
+        title="Welcome back to Murmur. You’ve been missed!"
+        description="A lot has changed. What can Murmur help you with?"
+        footer={<Button onClick={() => { setWelcomeDismissed(true); toast('Let’s Murmur!', { body: welcomeHelp || 'Hold your shortcut whenever you’re ready.', tone: 'success' }); }}>Let’s Murmur!</Button>}
+      >
+        <textarea className="m-textarea" aria-label="What can Murmur help with?" placeholder="Tell us what you want to accomplish…" value={welcomeHelp} onChange={(event) => setWelcomeHelp(event.target.value)} />
       </Dialog>
     </Page>
   );

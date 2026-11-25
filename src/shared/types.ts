@@ -55,6 +55,8 @@ export interface HistoryEntry {
   numWordsCorrected: number;
   latencyMs: number;
   error: string | null;
+  feedback?: string | null;
+  accessibilityContext?: string | null;
   detectedLanguage?: string | null;
   outputLanguage?: string | null;
   localPipelineText?: string | null;
@@ -151,6 +153,7 @@ export interface Todo {
   meetingTitle: string | null;
   title: string;
   status: 'open' | 'done';
+  priority: 'high' | 'medium' | 'low' | 'none';
   isArchived: boolean;
   sortOrder: number;
   createdAt: string;
@@ -293,6 +296,15 @@ export interface Toast {
   target: 'bar' | 'hub';
 }
 
+
+export interface MeetingAnalytics {
+  weeks: { label: string; topics: { topic: string; minutes: number }[] }[];
+  recordedCount: number;
+  averageDurationMin: number;
+  people: { name: string; minutes: number; meetings: number }[];
+  analyzedCount: number;
+  requiredCount: number;
+}
 // ---------------------------------------------------------------- stats & insights
 export interface Stats {
   totalWords: number;
@@ -362,6 +374,31 @@ export interface Skill {
   builtIn: boolean;
   createdAt: string;
   modifiedAt: string;
+}
+
+export interface MemoryEvent {
+  id: string;
+  source: string;
+  title: string;
+  detail: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface MemoryPerson {
+  name: string;
+  meetingCount: number;
+  minutes: number;
+  lastMet: string;
+  mentions: number;
+}
+
+export interface MemoryLink {
+  url: string;
+  host: string;
+  count: number;
+  lastSeen: string;
+  sources: string[];
 }
 
 export interface MemoryDoc {

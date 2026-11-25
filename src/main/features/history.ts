@@ -1,6 +1,6 @@
 // Dictation history: listing, search, revert/redo AI edits, audio access, deletion.
 import { dialog } from 'electron';
-import { copyFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { HistoryEntry } from '@shared/types';
 import { getCtx } from '../context';
 import { broadcast, handle } from '../ipc';
@@ -29,6 +29,8 @@ export interface HistoryRow {
   numWordsCorrected: number;
   latencyMs: number;
   error: string | null;
+  feedback: string | null;
+  accessibilityContext: string | null;
 }
 
 export function rowToHistory(r: HistoryRow): HistoryEntry {
@@ -95,6 +97,27 @@ export function registerHistory(): void {
       const target = dialog.showSaveDialogSync({ defaultPath: `murmur-dictation-${id.slice(0, 8)}.wav`, filters: [{ name: 'WAV audio', extensions: ['wav'] }] });
       if (!target) return null;
       copyFileSync(r.audioPath, target);
+      return target;
+    },
+    report(id, input) {
+      const feedback = JSON.stringify({
+        expectedText: input.expectedText.trim(),
+        comments: input.comments.trim(),
+        submittedAt: new Date().toISOString(),
+      });
+      db.run('UPDATE history SET feedback = ? WHERE id = ?', feedback, id);
+      broadcast('history:changed', { id });
+      return get(id);
+    },
+    exportFeedback() {
+      const rows = db.all<HistoryRow>("SELECT * FROM history WHERE feedback IS NOT NULL AND feedback <> '' ORDER BY timestamp DESC");
+      const target = dialog.showSaveDialogSync({
+        title: 'Export model feedback',
+        defaultPath: 'murmur-model-feedback.json',
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+      if (!target) return null;
+      writeFileSync(target, JSON.stringify(rows.map(rowToHistory), null, 2), 'utf8');
       return target;
     },
     clearAll() {

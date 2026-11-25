@@ -31,6 +31,7 @@
 .noteHeader input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--foreground); font: 500 25px/1.1 var(--font-serif); }
 .noteHeader button { width: 30px; height: 30px; display: grid; place-items: center; }
 .editorWrap { min-height: 0; position: relative; display: grid; grid-template-rows: 36px minmax(0, 1fr) 24px; }
+.noFormatting { grid-template-rows: minmax(0, 1fr) 24px; }
 .formatting { padding: 3px 17px; display: flex; align-items: center; gap: 2px; border-block: 1px solid var(--border); background: var(--background-secondary); }
 .formatting button { width: 27px; height: 27px; display: grid; place-items: center; }
 .formatting button:hover { background: var(--muted-hover); color: var(--foreground); }
@@ -51,6 +52,8 @@
 .linkDialog > div { display: flex; justify-content: flex-end; gap: 6px; }
 .linkDialog button { padding: 6px 9px; border: 0; border-radius: 6px; background: var(--background-secondary); color: var(--foreground); }
 .linkDialog .primary { background: var(--primary); color: var(--primary-foreground); }
+.messagePreview { min-height: 0; padding: 28px; overflow: auto; background: var(--background-secondary); }
+.messagePreview > div { max-width: 78%; margin-left: auto; padding: 12px 15px; border-radius: 14px 14px 4px 14px; background: var(--accent-soft); color: var(--foreground); white-space: pre-wrap; }
 .footer { padding: 0 12px; display: flex; align-items: center; gap: 3px; border-top: 1px solid var(--border); background: var(--background-secondary); }
 .footer button { height: 30px; padding: 0 8px; display: flex; align-items: center; gap: 5px; font-size: 11px; }
 .footer button:hover, .footer button[aria-pressed='true'] { background: var(--muted-hover); color: var(--foreground); }

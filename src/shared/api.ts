@@ -1,6 +1,6 @@
 // The complete renderer-callable API surface. Each namespace is implemented in src/main/features/<ns>.ts.
 import type { DeepPartial, Settings, ShortcutAction } from './settings';
-import type { MemoryDoc, MemoryStatus, Skill } from './types';
+import type { MemoryDoc, MemoryEvent, MemoryLink, MemoryPerson, MemoryStatus, Skill } from './types';
 import type {
   ActiveAppInfo,
   AppNotification,
@@ -15,6 +15,7 @@ import type {
   LlmStatus,
   Meeting,
   MeetingChatMessage,
+  MeetingAnalytics,
   MeetingListItem,
   Note,
   NoteVersion,
@@ -88,6 +89,8 @@ export interface HistoryApi {
   redoAiEdit(id: string): HistoryEntry;
   getAudio(id: string): ArrayBuffer | null; // WAV bytes
   saveAudioAs(id: string): string | null;
+  report(id: string, input: { expectedText: string; comments: string }): HistoryEntry;
+  exportFeedback(): string | null;
   clearAll(): void;
 }
 
@@ -124,6 +127,7 @@ export interface NotesApi {
   transform(noteId: string, instruction: string, transformId?: string): Note;
   suggestions(noteId: string): string[];
   sendToApp(noteId: string): { app: string } | null;
+  sendTarget(): string | null;
   openScratchpad(noteId?: string): void;
   addImage(noteId: string, dataUrl: string): string; // returns murmur-image:// url
 }
@@ -131,9 +135,11 @@ export interface NotesApi {
 export interface TodosApi {
   list(opts: { archived: boolean; query?: string }): Todo[];
   add(title: string, meetingId?: string | null): Todo;
-  update(id: string, patch: { title?: string; status?: Todo['status']; isArchived?: boolean; sortOrder?: number }): Todo;
+  update(id: string, patch: { title?: string; status?: Todo['status']; priority?: Todo['priority']; isArchived?: boolean; sortOrder?: number }): Todo;
   remove(ids: string[]): void;
   archiveMany(ids: string[], archived: boolean): void;
+  recordEmail(input: { todoId: string; to: string; subject: string; body: string }): void;
+  saveCalendarFile(input: { todoId: string; title: string; start: string; end: string; guests: string; description: string }): string | null;
 }
 
 export interface MeetingsApi {
@@ -188,6 +194,7 @@ export interface StatsApi {
   get(): Stats;
   voiceProfile(): VoiceProfile;
   generateVoiceProfile(): VoiceProfile;
+  meetingAnalytics(): MeetingAnalytics;
 }
 
 export interface NotificationsApi {
@@ -224,6 +231,11 @@ export interface MemoryApi {
   get(id: string): MemoryDoc | null;
   save(id: string, content: string): MemoryDoc;
   search(query: string): { docId: string; title: string; line: number; text: string }[];
+  addFact(text: string, source: string): MemoryDoc;
+  runDreamer(): MemoryStatus;
+  events(): MemoryEvent[];
+  people(): MemoryPerson[];
+  links(): MemoryLink[];
   deleteAll(): void;
 }
 

@@ -26,4 +26,8 @@
 .empty { min-height: 260px; margin-top: 24px; display: grid; align-content: center; justify-items: center; gap: 7px; border: 1px dashed var(--border); border-radius: 12px; text-align: center; }
 .empty h2 { font: 500 25px/1.2 var(--font-serif); }
 .empty p { color: var(--foreground-tertiary); font-size: 13px; }
+.connect { margin-top: 28px; padding: 15px 17px; display: flex; align-items: center; gap: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--background-secondary); }
+.connect > div { min-width: 0; flex: 1; }
+.connect p { margin-top: 3px; color: var(--foreground-tertiary); font-size: 12px; }
+.form { display: grid; gap: 14px; }
 @media (max-width: 700px) { .coachmark { grid-template-columns: auto 1fr auto; } .coachmark > button:not(:last-child) { grid-column: 2; width: fit-content; } .controls { align-items: stretch; flex-direction: column; } .search { width: 100%; } }

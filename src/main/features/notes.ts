@@ -232,6 +232,7 @@ export function registerNotes(): void {
       await pasteText(plainText(note.content), { target: pasteTarget, html: note.content });
       return { app: pasteTarget.processName || pasteTarget.title || 'app' };
     },
+    sendTarget: () => pasteTarget?.processName || pasteTarget?.title || null,
     openScratchpad,
     addImage(noteId, dataUrl) {
       getNote(noteId);

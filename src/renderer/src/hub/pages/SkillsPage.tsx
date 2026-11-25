@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MeetingListItem, Skill } from '@shared/types';
-import { Copy, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { Brain, Copy, FileText, Mail, MessageSquare, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
 import { Button, Card, Checkbox, ConfirmDialog, Dialog, EmptyState, Field, Input, Page, PageHeader, SearchInput, Select, Tabs, TextArea } from '../../ui';
 import { toast } from '../state';
@@ -30,6 +30,11 @@ export function SkillsPage() {
   const [meetingIds, setMeetingIds] = useState<string[]>([]);
   const [result, setResult] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [draftAction, setDraftAction] = useState<'email' | 'slack' | 'notion' | null>(null);
+  const [actionTo, setActionTo] = useState('');
+  const [actionCc, setActionCc] = useState('');
+  const [actionSubject, setActionSubject] = useState('');
+  const [actionBody, setActionBody] = useState('');
   const refresh = useCallback(() => void api.skills.list().then(setSkills), []);
   useEffect(refresh, [refresh]);
   const visible = useMemo(() => skills.filter((skill) => {
@@ -74,6 +79,25 @@ export function SkillsPage() {
       setRunning(false);
     }
   };
+  const openDraft = (kind: 'email' | 'slack' | 'notion') => {
+    setActionSubject(selected?.name ?? 'Murmur draft');
+    setActionBody(result ?? '');
+    setDraftAction(kind);
+  };
+  const finishDraft = async () => {
+    if (!draftAction) return;
+    if (draftAction === 'email') {
+      const mailto = `mailto:${encodeURIComponent(actionTo)}?cc=${encodeURIComponent(actionCc)}&subject=${encodeURIComponent(actionSubject)}&body=${encodeURIComponent(actionBody)}`;
+      await api.app.openExternal(mailto);
+      toast('Email draft opened', { body: 'Review it in your email app before sending.', tone: 'success' });
+    } else {
+      const markdown = actionSubject ? `# ${actionSubject}\n\n${actionBody}` : actionBody;
+      await api.app.copyText(markdown);
+      if (draftAction === 'slack') await api.app.openExternal('slack://open');
+      toast(draftAction === 'slack' ? 'Draft copied and Slack opened' : 'Notion-ready Markdown copied', { tone: 'success' });
+    }
+    setDraftAction(null);
+  };
   return (
     <Page wide>
       <PageHeader title="Skills" actions={<Button icon={<Plus size={16} />} onClick={() => { setError(null); setDraft({ ...EMPTY_DRAFT }); }}>Create Skill</Button>} />
@@ -104,8 +128,34 @@ export function SkillsPage() {
           </div>
         )}
       </Dialog>
-      <Dialog open={runOpen} onClose={() => setRunOpen(false)} title={result ? `${selected?.name} result` : `Use ${selected?.name ?? 'skill'}`} width={700} footer={result ? <Button icon={<Copy size={15} />} onClick={() => void navigator.clipboard.writeText(result)}>Copy result</Button> : <Button loading={running} disabled={!meetingIds.length} onClick={() => void run()}>Run skill</Button>}>
+      <Dialog
+        open={runOpen}
+        onClose={() => setRunOpen(false)}
+        title={result ? `${selected?.name} result` : `Use ${selected?.name ?? 'skill'}`}
+        width={700}
+        footer={result ? (
+          <div className={s.actions}>
+            <Button variant="outline" icon={<Copy size={15} />} onClick={() => void navigator.clipboard.writeText(result)}>Copy</Button>
+            <Button variant="outline" icon={<Mail size={15} />} onClick={() => openDraft('email')}>Email</Button>
+            <Button variant="outline" icon={<MessageSquare size={15} />} onClick={() => openDraft('slack')}>Slack</Button>
+            <Button variant="outline" icon={<FileText size={15} />} onClick={() => openDraft('notion')}>Notion</Button>
+            <Button icon={<Brain size={15} />} onClick={() => void api.memory.addFact(result, `Skill: ${selected?.name ?? 'Ask'}`).then(() => toast('Saved to memory', { tone: 'success' }))}>Save to memory</Button>
+          </div>
+        ) : <Button loading={running} disabled={!meetingIds.length} onClick={() => void run()}>Run skill</Button>}
+      >
         {result ? <div className={s.result}>{result}</div> : <div className={s.meetings}>{meetings.length ? meetings.map((meeting) => <Checkbox key={meeting.id} checked={meetingIds.includes(meeting.id)} onChange={(checked) => setMeetingIds((current) => checked ? [...current, meeting.id] : current.filter((id) => id !== meeting.id))} label={meeting.title} />) : <EmptyState title="No meetings yet" body="Record or import a meeting before using this skill." />}</div>}
+      </Dialog>
+      <Dialog
+        open={!!draftAction}
+        onClose={() => setDraftAction(null)}
+        title={draftAction === 'email' ? 'Email draft' : draftAction === 'slack' ? 'Slack draft' : 'Notion page draft'}
+        footer={<><Button variant="ghost" onClick={() => setDraftAction(null)}>Cancel</Button><Button onClick={() => void finishDraft()}>{draftAction === 'email' ? 'Open email' : draftAction === 'slack' ? 'Copy & open Slack' : 'Copy Markdown'}</Button></>}
+      >
+        <div className={s.detail}>
+          {draftAction === 'email' && <><Field label="To"><Input aria-label="Draft To" value={actionTo} onChange={(event) => setActionTo(event.target.value)} /></Field><Field label="Cc"><Input aria-label="Draft Cc" value={actionCc} onChange={(event) => setActionCc(event.target.value)} /></Field></>}
+          <Field label={draftAction === 'slack' ? 'Channel or person' : 'Subject / title'}><Input aria-label="Draft subject" value={actionSubject} onChange={(event) => setActionSubject(event.target.value)} /></Field>
+          <Field label="Content"><TextArea aria-label="Draft content" rows={10} value={actionBody} onChange={(event) => setActionBody(event.target.value)} /></Field>
+        </div>
       </Dialog>
       <ConfirmDialog open={deleteOpen} title="Delete skill?" body="This custom skill cannot be recovered." confirmLabel="Delete" danger onClose={() => setDeleteOpen(false)} onConfirm={() => { if (selected) void api.skills.remove(selected.id).then(() => { setDeleteOpen(false); setSelected(null); refresh(); }); }} />
     </Page>

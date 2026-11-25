@@ -61,5 +61,7 @@
 .mockLine { height: 12px; border-radius: 999px; background: var(--border); }
 .mockLine:nth-child(2) { width: 72%; }
 .mockLine:nth-child(3) { width: 48%; background: var(--accent-text); }
+.reportForm { display: grid; gap: 14px; }
+.contextDump { max-height: 360px; margin: 0; padding: 12px; overflow: auto; white-space: pre-wrap; border-radius: 8px; background: var(--background-secondary); font: 12px/1.5 var(--font-mono); }
 @media (max-width: 900px) { .homeGrid { grid-template-columns: 1fr; } .sideColumn { display: grid; grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 620px) { .sideColumn, .onboardingPills { grid-template-columns: 1fr; } .dictationRow { grid-template-columns: 62px minmax(0, 1fr); } .rowActions { grid-column: 2; opacity: 1; } }

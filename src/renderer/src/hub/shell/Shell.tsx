@@ -14,6 +14,7 @@ import {
   ListTodo,
   Minus,
   Moon,
+  Plug,
   PanelLeft,
   Scissors,
   Settings as SettingsIcon,
@@ -29,7 +30,7 @@ import {
 import { api, useEvent } from '../../lib/api';
 import { usePatchSettings, useSettings } from '../../lib/settings';
 import { CountBadge, IconButton, cx } from '../../ui';
-import { useHubUi } from '../state';
+import { toast, useHubUi } from '../state';
 import { Logo } from './Logo';
 import { AccountMenu } from './AccountMenu';
 import { HelpMenu } from './HelpMenu';
@@ -45,6 +46,7 @@ const NAV: { to: string; label: string; icon: ReactNode }[] = [
   { to: '/dictionary', label: 'Dictionary', icon: <BookText size={18} /> },
   { to: '/snippets', label: 'Snippets', icon: <Scissors size={18} /> },
   { to: '/style', label: 'Style', icon: <Type size={18} /> },
+  { to: '/style', label: 'My Voice', icon: <CircleUserRound size={18} /> },
   { to: '/transforms', label: 'Transforms', icon: <WandSparkles size={18} /> },
   { to: '/scratchpad', label: 'Scratchpad', icon: <StickyNote size={18} /> },
   { to: '/tasks', label: 'My Tasks', icon: <ListTodo size={18} /> },
@@ -125,11 +127,15 @@ export function Shell({ children }: { children: ReactNode }) {
         <div className={s.sidebarScroll}>
         <nav aria-label="Main navigation" className={s.nav}>
           {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => cx(s.navItem, (isActive || (n.to === '/notetaker' && location.pathname.startsWith('/notetaker'))) && s.navActive)}>
+            <NavLink key={n.label} to={n.to} end={n.to === '/'} className={({ isActive }) => cx(s.navItem, (isActive || (n.to === '/notetaker' && location.pathname.startsWith('/notetaker'))) && s.navActive)}>
               {n.icon}
               <span>{n.label}</span>
             </NavLink>
           ))}
+          <button type="button" className={s.navItem} onClick={() => toast('Murmur runs fully offline', { body: 'Online account extensions are not available.', tone: 'info' })}>
+            <Plug size={18} />
+            <span>Extensions</span>
+          </button>
         </nav>
         <div className={s.spacer} />
         <NotetakerChecklist />

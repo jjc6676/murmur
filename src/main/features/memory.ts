@@ -23,6 +23,11 @@ const idleStatus: MemoryStatus = {
   error: null,
 };
 let memoryBuilding = false;
+let memoryGeneration = 0;
+
+function addEvent(source: string, title: string, status: string, detail = ''): void {
+  getCtx().db.insert('memory_events', { id: newId(), source, title, detail, status, createdAt: nowIso() });
+}
 
 function rowToDoc(row: MemoryRow): MemoryDoc {
   try {
@@ -54,8 +59,9 @@ function setStatus(status: MemoryStatus): void {
   broadcast('memory:status', status);
 }
 
-async function buildMemory(): Promise<void> {
+async function buildMemory(reason = 'Catch up'): Promise<void> {
   const { db } = getCtx();
+  const generation = memoryGeneration;
   const meetings = db.all<{ title: string; createdAt: string; transcript: string; summary: string | null }>(
     'SELECT title, createdAt, transcript, summary FROM meetings WHERE isDeleted = 0 ORDER BY createdAt DESC LIMIT 100',
   );
@@ -88,6 +94,7 @@ async function buildMemory(): Promise<void> {
       { folder: 'projects', title: 'Projects', content: `# Projects\n\n${meetingText || noteText ? synthesis : 'No active projects have been identified yet.'}`, source: 'Meetings and notes' },
       { folder: 'timeline', title: 'Timeline', content: `# Timeline\n\n${[...meetings.map((x) => `- ${x.createdAt.slice(0, 10)} — ${x.title}`), ...notes.map((x) => `- ${x.modifiedAt.slice(0, 10)} — ${x.title}`)].slice(0, 50).join('\n') || '- Memory initialized'}`, source: 'Local activity' },
     ];
+    if (generation !== memoryGeneration) return;
     db.tx(() => {
       for (const doc of docs) {
         const existing = db.get<MemoryRow>('SELECT * FROM memory_docs WHERE folder = ? AND title = ?', doc.folder, doc.title);
@@ -100,6 +107,7 @@ async function buildMemory(): Promise<void> {
         }
       }
     });
+    addEvent('Local sources', reason, 'Changed memory', `${sources.meetings} meetings · ${sources.dictations} dictations · ${sources.notes} notes`);
     memoryBuilding = false;
     setStatus({ state: 'idle', lastRunAt: timestamp, docCount: docs.length, sources, error: null });
   } catch (error) {
@@ -107,6 +115,23 @@ async function buildMemory(): Promise<void> {
     memoryBuilding = false;
     setStatus({ state: 'failed', lastRunAt: null, docCount: db.get<{ count: number }>('SELECT COUNT(*) AS count FROM memory_docs')?.count ?? 0, sources, error: message });
   }
+}
+
+function scheduleDreamer(): void {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(2, 0, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  const timer = setTimeout(() => {
+    if (!memoryBuilding) {
+      memoryBuilding = true;
+      addEvent('Dreamer', 'Nightly tidy-up', 'Running');
+      void buildMemory('Nightly tidy-up').finally(() => scheduleDreamer());
+    } else {
+      scheduleDreamer();
+    }
+  }, next.getTime() - now.getTime());
+  timer.unref();
 }
 
 export function registerMemory(): void {
@@ -122,6 +147,16 @@ export function registerMemory(): void {
       void buildMemory();
       return status;
     },
+    runDreamer() {
+      const current = getStatus();
+      if (memoryBuilding) return current;
+      memoryBuilding = true;
+      const status = { ...current, state: 'running' as const, error: null };
+      setStatus(status);
+      addEvent('Dreamer', 'Nightly tidy-up', 'Running');
+      void buildMemory('Nightly tidy-up');
+      return status;
+    },
     list: () => db.all<MemoryRow>('SELECT * FROM memory_docs ORDER BY folder, title COLLATE NOCASE').map(rowToDoc),
     get(id) {
       const row = db.get<MemoryRow>('SELECT * FROM memory_docs WHERE id = ?', id);
@@ -133,6 +168,7 @@ export function registerMemory(): void {
       const versions = rowToDoc(row).versions;
       versions.unshift({ content: row.content, modifiedAt: row.modifiedAt, changedBy: row.changedBy });
       db.update('memory_docs', id, { content, changedBy: 'user', versions: JSON.stringify(versions.slice(0, 20)), modifiedAt: nowIso() });
+      addEvent('You', `Edited ${row.title}`, 'Changed memory', row.source);
       return rowToDoc(db.get<MemoryRow>('SELECT * FROM memory_docs WHERE id = ?', id)!);
     },
     search(query) {
@@ -144,10 +180,39 @@ export function registerMemory(): void {
         ),
       );
     },
+    addFact(text, source) {
+      const clean = text.trim();
+      if (!clean) throw new Error('Memory fact cannot be empty');
+      const existing = db.get<MemoryRow>("SELECT * FROM memory_docs WHERE folder = 'knowledge' AND title = 'Saved facts'");
+      const timestamp = nowIso();
+      if (existing) {
+        const versions = rowToDoc(existing).versions;
+        versions.unshift({ content: existing.content, modifiedAt: existing.modifiedAt, changedBy: existing.changedBy });
+        db.update('memory_docs', existing.id, {
+          content: `${existing.content}\n- ${clean}`,
+          source: source.trim() || 'Local action',
+          changedBy: 'user',
+          versions: JSON.stringify(versions.slice(0, 20)),
+          modifiedAt: timestamp,
+        });
+      } else {
+        db.insert('memory_docs', {
+          id: newId(), folder: 'knowledge', title: 'Saved facts', content: `# Saved facts\n\n- ${clean}`,
+          source: source.trim() || 'Local action', changedBy: 'user', versions: '[]', modifiedAt: timestamp,
+        });
+      }
+      addEvent(source.trim() || 'Local action', 'Saved a fact', 'Changed memory', clean);
+      const row = db.get<MemoryRow>("SELECT * FROM memory_docs WHERE folder = 'knowledge' AND title = 'Saved facts'")!;
+      return rowToDoc(row);
+    },
     deleteAll() {
+      memoryGeneration += 1;
+      memoryBuilding = false;
       db.run('DELETE FROM memory_docs');
+      db.run('DELETE FROM memory_events');
       const status = { ...idleStatus };
       setStatus(status);
     },
   });
+  scheduleDreamer();
 }

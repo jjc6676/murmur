@@ -1,5 +1,5 @@
 // Local usage analytics, milestones, and voice-profile generation.
-import type { AppCategory, Stats, VoiceProfile } from '@shared/types';
+import type { AppCategory, MeetingAnalytics, Stats, TranscriptSegment, VoiceProfile } from '@shared/types';
 import { CATEGORY_LABELS, categorizeApp } from '@shared/apps';
 import { getCtx } from '../context';
 import { handle, onEvent } from '../ipc';
@@ -208,6 +208,7 @@ export function registerStats(): void {
     get: computeStats,
     voiceProfile: currentProfile,
     generateVoiceProfile: generateProfile,
+    meetingAnalytics,
   });
   onEvent('history:changed', emitMilestones);
   emitMilestones();

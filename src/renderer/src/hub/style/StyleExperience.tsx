@@ -3,7 +3,7 @@ import { Check, Globe2, Plus, X } from 'lucide-react';
 import type { CleanupLevel, StyleContext, StyleTone } from '@shared/types';
 import { applyTone, capitalize, ensureTerminalPunctuation } from '@shared/textPipeline';
 import { usePatchSettings, useSettings } from '../../lib/settings';
-import { Badge, Banner, Button, Dialog, Input, Page, PageHeader, Tabs, Toggle } from '../../ui';
+import { Badge, Banner, Button, Dialog, Input, Page, PageHeader, Tabs, TextArea, Toggle } from '../../ui';
 import styles from './style.module.css';
 
 type Tab = StyleContext | 'cleanup';
@@ -62,6 +62,17 @@ function ContextPanel({ context }: { context: StyleContext }) {
     <div className={styles.apps}><div className={styles.appsHeader}><div><strong>Applies in</strong><div className={styles.subtle}>Add process names or websites where this style should be used.</div></div><Plus size={18} /></div>
       <div className={styles.chips}>{current.apps.length ? current.apps.map((name) => <span className={styles.chip} key={name}>{name}<button aria-label={`Remove ${name}`} onClick={() => void setApps(current.apps.filter((a) => a !== name))}><X size={13} /></button></span>) : <span className={styles.subtle}>All other apps</span>}</div>
       <div className={styles.addApp}><Input aria-label="Process name" placeholder="e.g. slack" value={app} onChange={(e) => setApp(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && void addApp()} /><Button variant="outline" onClick={() => void addApp()}>Add app</Button></div>
+    </div>
+    <div className={styles.apps}>
+      <div className={styles.appsHeader}>
+        <div><strong>Custom instructions</strong><div className={styles.subtle}>Tell Murmur how to format this context. These instructions are included in the formatting pass.</div></div>
+      </div>
+      <TextArea
+        aria-label={`Custom instructions for ${data.label}`}
+        placeholder="For example: Keep messages concise and always end with a clear next step."
+        value={current.instructions ?? ''}
+        onChange={(event) => void patch({ styles: { [context]: { instructions: event.target.value } } })}
+      />
     </div>
     <div className={styles.disclaimer}><Globe2 size={16} /> Style formatting currently applies only in English. More languages are coming.</div>
   </section>;

@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import type { AppCategory, Stats, VoiceProfile } from '@shared/types';
+import type { AppCategory, MeetingAnalytics, Stats, VoiceProfile } from '@shared/types';
 import { CATEGORY_LABELS, appDisplayName } from '@shared/apps';
 import { LockKeyhole, Share2, ShieldCheck, Sparkles } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
@@ -9,6 +9,26 @@ import s from '../insights/Insights.module.css';
 
 const CATEGORY_ORDER: AppCategory[] = ['ai_prompts', 'work_messages', 'emails', 'personal_messages', 'documents', 'other'];
 const format = (value: number): string => value.toLocaleString();
+const TYPING_PERCENTILES = [{ wpm: 85, faster: 99 }, { wpm: 70, faster: 97 }, { wpm: 55, faster: 95 }, { wpm: 40, faster: 90 }];
+const funFact = (words: number): string => {
+  const equivalents = [
+    { size: 90_000, singular: 'book' }, { size: 12_000, singular: 'podcast season' }, { size: 3_000, singular: 'book chapter' },
+    { size: 1_200, singular: 'essay' }, { size: 500, singular: 'article' }, { size: 280, singular: 'thoughtful email' }, { size: 40, singular: 'postcard' },
+  ];
+  const match = equivalents.find((item) => words >= item.size) ?? equivalents[equivalents.length - 1];
+  const count = Math.max(1, Math.round(words / match.size));
+  return `${count.toLocaleString()} ${match.singular}${count === 1 ? '' : 's'}`;
+};
+const streakCopy = (days: number, weeks: number): string => {
+  if (days >= 365) return 'A full year of momentum. You’re a Murmur legend.';
+  if (days >= 100) return 'Triple digits—your voice is a daily habit.';
+  if (days >= 30) return 'One month strong. Your ideas keep moving.';
+  if (days >= 7) return 'A full week in flow. Keep the streak alive.';
+  if (days > 0) return `Day ${days}: every streak starts with showing up.`;
+  if (weeks >= 12) return 'A season of consistent weekly momentum.';
+  if (weeks > 0) return `${weeks} active ${weeks === 1 ? 'week' : 'weeks'}—welcome to your weekly rhythm.`;
+  return 'Dictate today to begin your streak.';
+};
 
 async function copyStatsImage(stats: Stats): Promise<void> {
   const canvas = document.createElement('canvas');
@@ -40,10 +60,12 @@ async function copyStatsImage(stats: Stats): Promise<void> {
   await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
 }
 
-function UsageView({ stats }: { stats: Stats }) {
+function UsageView({ stats, analytics }: { stats: Stats; analytics: MeetingAnalytics | null }) {
   const total = Math.max(1, stats.totalWords);
   const monthDelta = stats.wordsLastMonthToDate ? Math.round(((stats.wordsThisMonth - stats.wordsLastMonthToDate) / stats.wordsLastMonthToDate) * 100) : 100;
   const maxHeat = Math.max(1, ...stats.heatmap.map((day) => day.words));
+  const percentile = TYPING_PERCENTILES.find((item) => stats.averageWpm >= item.wpm);
+  const intensity = stats.wordsThisWeek >= 5_000 ? 'Power' : stats.wordsThisWeek >= 1_000 ? 'Moderate' : 'Light';
   const recentHeatmap = stats.heatmap.slice(-182);
   return (
     <div className={s.grid}>
@@ -53,7 +75,8 @@ function UsageView({ stats }: { stats: Stats }) {
           <strong className={s.bigNumber}>{stats.averageWpm}</strong>
           <div className={s.gauge} style={{ '--gauge': `${Math.min(180, stats.averageWpm * 1.2)}deg` } as CSSProperties} aria-label={`${stats.averageWpm} words per minute`} />
         </div>
-        <p className={s.secondary}>{stats.averageWpm >= 40 ? `About ${Math.max(1, Math.round(stats.averageWpm / 40))}× faster than typing.` : 'Use Murmur more to see your WPM improve.'}</p>
+        <p className={s.secondary}>{percentile ? `Faster than ${percentile.faster}% of typers based on local typing-speed baselines.` : 'Use Murmur more to see your WPM improve.'}</p>
+        <strong className={s.intensity}>{intensity} usage</strong>
       </Card>
       <Card padded className={s.card}>
         <h2>Fixes made by Murmur</h2>
@@ -64,7 +87,7 @@ function UsageView({ stats }: { stats: Stats }) {
         <h2>Total words dictated</h2>
         <div className={s.split}><strong className={s.bigNumber}>{format(stats.totalWords)}</strong><span className={s.secondary}>{monthDelta >= 0 ? '+' : ''}{monthDelta}% this month vs last month</span></div>
         <div className={s.metricRow}><span>Desktop</span><strong>{format(stats.totalWords)} words</strong></div>
-        <p className={s.secondary}>That’s roughly {Math.max(1, Math.round(stats.totalWords / 250))} pages of writing—or {Math.max(1, Math.round(stats.totalWords / 280))} thoughtful emails.</p>
+        <p className={s.secondary}>That’s roughly {funFact(stats.totalWords)}—all created with your voice.</p>
       </Card>
       <Card padded className={`${s.card} ${s.wide}`}>
         <h2>Desktop usage by category</h2>
@@ -82,7 +105,25 @@ function UsageView({ stats }: { stats: Stats }) {
           {recentHeatmap.map((day) => <span key={day.date} className={s.heat} data-level={day.words ? Math.max(1, Math.ceil((day.words / maxHeat) * 4)) : 0} title={`${day.date}: ${day.words} words${day.topApp ? ` · ${appDisplayName(day.topApp)}` : ''}`} />)}
         </div>
         <div className={s.legend}><span>Less</span>{[0, 1, 2, 3, 4].map((level) => <span key={level} className={s.heat} data-level={level} />)}<span>More</span></div>
-        <p>{stats.dayStreak ? 'Every day you speak is another day your ideas move faster.' : 'Dictate today to begin your streak.'}</p>
+        <p>{streakCopy(stats.dayStreak, stats.weekStreak)}</p>
+      </Card>
+      <Card padded className={`${s.card} ${s.wide}`}>
+        <h2>For you · Meetings</h2>
+        {!analytics || analytics.analyzedCount < analytics.requiredCount ? (
+          <div className={s.topicLock}><LockKeyhole size={20} /><div><strong>Meeting topics are still taking shape</strong><p>Record {Math.max(0, (analytics?.requiredCount ?? 3) - (analytics?.analyzedCount ?? 0))} more meetings to unlock topic trends.</p></div></div>
+        ) : (
+          <>
+            <div className={s.meetingMetrics}>
+              <div><strong>{analytics.recordedCount}</strong><span>recorded</span></div>
+              <div><strong>{analytics.averageDurationMin}m</strong><span>average duration</span></div>
+              <div><strong>{analytics.people[0]?.name ?? '—'}</strong><span>most shared time</span></div>
+            </div>
+            <div className={s.topicWeeks}>
+              {analytics.weeks.map((week) => <div key={week.label}><span>{week.label}</span>{week.topics.slice(0, 3).map((topic) => <i key={topic.topic} title={`${topic.topic}: ${topic.minutes} minutes`} style={{ height: `${Math.max(4, Math.min(90, topic.minutes))}px` }} />)}</div>)}
+            </div>
+            {analytics.people.length > 0 && <p className={s.secondary}>Most shared time: {analytics.people.map((person) => `${person.name} (${person.minutes}m)`).join(' · ')}</p>}
+          </>
+        )}
       </Card>
     </div>
   );
@@ -117,6 +158,7 @@ function VoiceView({ stats, profile, onGenerated }: { stats: Stats; profile: Voi
         <Sparkles size={28} />
         <h2>{profile.headline}</h2>
         <strong>{profile.persona}</strong>
+        <div className={s.personaTags} aria-label="Persona vocabulary">{['analysis', 'brainstorm', 'coding', 'collaboration', 'deep thought', 'leadership', 'long writing', 'multilingual', 'on-the-go', 'presenting', 'reporting', 'support'].map((label) => <span key={label}>{label}</span>)}</div>
         <p>{profile.summary}</p>
         <Button variant="outline" loading={building} onClick={() => void generate()}>Regenerate profile</Button>
       </Card>
@@ -132,10 +174,12 @@ export function InsightsPage() {
   const [tab, setTab] = useState<'usage' | 'voice'>('usage');
   const [stats, setStats] = useState<Stats | null>(null);
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
+  const [analytics, setAnalytics] = useState<MeetingAnalytics | null>(null);
   useEffect(() => {
-    void Promise.all([api.stats.get(), api.stats.voiceProfile()]).then(([nextStats, nextProfile]) => {
+    void Promise.all([api.stats.get(), api.stats.voiceProfile(), api.stats.meetingAnalytics()]).then(([nextStats, nextProfile, nextAnalytics]) => {
       setStats(nextStats);
       setProfile(nextProfile);
+      setAnalytics(nextAnalytics);
     });
   }, []);
   const share = async () => {
@@ -151,8 +195,9 @@ export function InsightsPage() {
     <Page wide>
       <div className={s.page}>
         <PageHeader title="Insights" actions={<Button variant="outline" icon={<Share2 size={16} />} disabled={!stats} onClick={() => void share()}>Share</Button>} />
+        <section className={s.snapshot}><strong>You’ve been Murmuring. Hard.</strong><span>Your voice has turned {format(stats?.totalWords ?? 0)} words into momentum.</span></section>
         <Tabs value={tab} onChange={setTab} tabs={[{ id: 'usage', label: 'Your usage' }, { id: 'voice', label: 'Your voice' }]} />
-        {stats && profile && (tab === 'usage' ? <UsageView stats={stats} /> : <VoiceView stats={stats} profile={profile} onGenerated={setProfile} />)}
+        {stats && profile && (tab === 'usage' ? <UsageView stats={stats} analytics={analytics} /> : <VoiceView stats={stats} profile={profile} onGenerated={setProfile} />)}
       </div>
     </Page>
   );

@@ -53,7 +53,7 @@ export function registerApp(): void {
     getVersion: () => app.getVersion(),
     getPlatformInfo: () => ({ platform: process.platform, arch: process.arch, userData: paths.userData, isPackaged: app.isPackaged }),
     openExternal(url) {
-      if (/^(https?|mailto|ms-settings):/i.test(url)) void shell.openExternal(url);
+      if (/^(https?|mailto|slack|ms-settings):/i.test(url)) void shell.openExternal(url);
     },
     openPath(p) {
       void shell.openPath(p);

@@ -77,7 +77,7 @@ export interface Settings {
   // dictation / AI
   cleanupLevel: CleanupLevel;
   smartFormatting: { lists: boolean; backtrack: boolean; emails: boolean; spokenPunctuation: boolean };
-  styles: Record<StyleContext, { tone: StyleTone; apps: string[] }>;
+  styles: Record<StyleContext, { tone: StyleTone; apps: string[]; instructions?: string }>;
   personalizationComplete: boolean;
   transformsEnabled: boolean;
   transformAutoPaste: boolean;
@@ -269,10 +269,10 @@ export const DEFAULT_SETTINGS: Settings = {
   cleanupLevel: 'light',
   smartFormatting: { lists: true, backtrack: true, emails: true, spokenPunctuation: true },
   styles: {
-    work: { tone: 'formal', apps: DEFAULT_STYLE_APPS.work },
-    email: { tone: 'formal', apps: DEFAULT_STYLE_APPS.email },
-    personal: { tone: 'formal', apps: DEFAULT_STYLE_APPS.personal },
-    other: { tone: 'formal', apps: [] },
+    work: { tone: 'formal', apps: DEFAULT_STYLE_APPS.work, instructions: '' },
+    email: { tone: 'formal', apps: DEFAULT_STYLE_APPS.email, instructions: '' },
+    personal: { tone: 'formal', apps: DEFAULT_STYLE_APPS.personal, instructions: '' },
+    other: { tone: 'formal', apps: [], instructions: '' },
   },
   personalizationComplete: false,
   transformsEnabled: true,

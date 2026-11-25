@@ -59,6 +59,9 @@ export function VocabPage({ snippets }: { snippets: boolean }) {
   return (
     <Page wide>
       <PageHeader title={title} actions={<><Button variant="outline" onClick={() => void importEntries()}>Import</Button><Button onClick={() => setEditor('new')}>Add new</Button></>} />
+      <p className={styles.syncStatus} title="Murmur runs fully offline — account sync and admin approval are not available.">
+        {title} stored locally · Cloud sync unavailable
+      </p>
       <div className={styles.toolbar}>
         <Tabs value={scope} onChange={setScope} tabs={[{ id: 'all', label: 'All' }, { id: 'personal', label: 'Personal' }, { id: 'team', label: 'Shared with team' }]} />
         <div className={styles.tools}>
@@ -67,7 +70,7 @@ export function VocabPage({ snippets }: { snippets: boolean }) {
           <IconButton label="Refresh" onClick={() => void load()}><RefreshCw size={17} /></IconButton>
         </div>
       </div>
-      {scope === 'team' ? <div className={styles.teamNotice}><h2>Shared with team</h2><p>Murmur runs fully offline, so team vocabulary is not available.</p></div> : <>
+      {scope === 'team' ? <div className={styles.teamNotice}><h2>Shared with team</h2><p>Murmur runs fully offline, so team {snippets ? 'snippets' : 'vocabulary'}, sync, and admin approval are not available. Personal entries remain available immediately.</p></div> : <>
         {hero && (snippets ? <SnippetHero onAdd={() => setEditor('new')} onDismiss={() => void dismissHero()} /> : <DictionaryHero onAdd={(phrase) => setEditor(phrase ? { preset: phrase } : 'new')} onDismiss={() => void dismissHero()} />)}
         {selected.length > 0 && <div className={styles.bulk}><span>{selected.length} selected</span><Button size="sm" variant="danger" onClick={() => setDeleting(selected)}>Delete selected</Button></div>}
         {visible.length ? <div className={styles.list} role="grid" aria-label={title}>

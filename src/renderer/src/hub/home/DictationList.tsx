@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { HistoryEntry } from '@shared/types';
-import { Archive, Copy, Download, MoreHorizontal, Pause, Play, RefreshCw, RotateCcw, RotateCw, Trash2 } from 'lucide-react';
+import { Archive, Copy, Download, MessageSquare, MoreHorizontal, Pause, Play, RefreshCw, RotateCcw, RotateCw, ScanText, Trash2 } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
-import { Button, ConfirmDialog, IconButton, Menu } from '../../ui';
+import { Button, ConfirmDialog, Dialog, Field, IconButton, Menu, TextArea } from '../../ui';
 import { toast } from '../state';
 import s from './Home.module.css';
 
@@ -25,6 +25,10 @@ function displayText(entry: HistoryEntry): string {
 function DictationRow({ entry, onChanged }: { entry: HistoryEntry; onChanged: () => void }) {
   const [deleting, setDeleting] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [expectedText, setExpectedText] = useState(displayText(entry));
+  const [comments, setComments] = useState('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   useEffect(() => () => {
     const audio = audioRef.current;
@@ -76,6 +80,20 @@ function DictationRow({ entry, onChanged }: { entry: HistoryEntry; onChanged: ()
       toast('Couldn’t update transcript', { body: errorMessage(error), tone: 'error' });
     }
   };
+  const submitReport = async () => {
+    try {
+      await api.history.report(entry.id, { expectedText, comments });
+      toast('Report saved locally', {
+        body: 'Your feedback stays on this device and can be exported.',
+        tone: 'success',
+        actions: [{ label: 'Export', onClick: () => void api.history.exportFeedback() }],
+      });
+      setReportOpen(false);
+      onChanged();
+    } catch (error) {
+      toast('Couldn’t save report', { body: errorMessage(error), tone: 'error' });
+    }
+  };
   return (
     <article className={s.dictationRow} data-status={entry.status}>
       <time className={s.dictationTime}>{new Date(entry.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time>
@@ -97,6 +115,8 @@ function DictationRow({ entry, onChanged }: { entry: HistoryEntry; onChanged: ()
               : { label: 'Undo AI edit', icon: <RotateCcw size={15} />, disabled: entry.asrText === entry.formattedText, onSelect: () => void mutate(() => api.history.undoAiEdit(entry.id), 'AI edit undone') },
             ...(entry.hasAudio ? [{ label: 'Download audio', icon: <Download size={15} />, onSelect: () => void mutate(() => api.history.saveAudioAs(entry.id), 'Audio saved') }] : []),
             { label: entry.isArchived ? 'Restore from archive' : 'Archive', icon: <Archive size={15} />, onSelect: () => void mutate(() => api.history.archive(entry.id, !entry.isArchived), entry.isArchived ? 'Transcript restored' : 'Transcript archived') },
+            { label: 'Send feedback', icon: <MessageSquare size={15} />, onSelect: () => setReportOpen(true) },
+            { label: 'Open AX inspector', icon: <ScanText size={15} />, onSelect: () => setInspectorOpen(true) },
             { label: 'Delete', icon: <Trash2 size={15} />, danger: true, onSelect: () => setDeleting(true) },
           ]}
         />
@@ -110,6 +130,22 @@ function DictationRow({ entry, onChanged }: { entry: HistoryEntry; onChanged: ()
         onClose={() => setDeleting(false)}
         onConfirm={() => void mutate(() => api.history.delete(entry.id), 'Transcript deleted').then(() => setDeleting(false))}
       />
+      <Dialog
+        open={reportOpen}
+        onClose={() => setReportOpen(false)}
+        title="Report to Improve Model"
+        description="Describe what Murmur should have produced. This report is saved locally."
+        footer={<><Button variant="ghost" onClick={() => setReportOpen(false)}>Cancel</Button><Button onClick={() => void submitReport()}>Save report</Button></>}
+      >
+        <div className={s.reportForm}>
+          <Field label="Original transcription"><TextArea value={entry.asrText} readOnly rows={4} /></Field>
+          <Field label="Expected output"><TextArea aria-label="Expected output" value={expectedText} onChange={(event) => setExpectedText(event.target.value)} rows={5} /></Field>
+          <Field label="Bug comments"><TextArea aria-label="Bug comments" value={comments} onChange={(event) => setComments(event.target.value)} rows={4} /></Field>
+        </div>
+      </Dialog>
+      <Dialog open={inspectorOpen} onClose={() => setInspectorOpen(false)} title="Accessibility context">
+        {entry.accessibilityContext ? <pre className={s.contextDump}>{entry.accessibilityContext}</pre> : <p>No accessibility context was captured for this dictation.</p>}
+      </Dialog>
     </article>
   );
 }

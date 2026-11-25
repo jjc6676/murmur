@@ -1,6 +1,8 @@
 .start { min-height: 520px; display: grid; place-items: center; text-align: center; }
 .startInner { max-width: 560px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .startInner h2 { font-family: var(--font-serif); font-size: 42px; margin: 0; }
+.agentList { width: 100%; margin-top: 12px; display: grid; gap: 7px; text-align: left; }
+.agentList > span { padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }
 .workspace { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 560px; margin-top: 18px; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
 .tree { background: var(--background-secondary); padding: 16px; overflow: auto; }
 .folder { margin-bottom: 18px; }
@@ -21,4 +23,14 @@
 .diff { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .diff pre { white-space: pre-wrap; padding: 12px; background: var(--background-tertiary); border-radius: var(--radius-md); overflow: auto; }
 .status { display: flex; gap: 8px; align-items: center; }
+.runBar { margin: 12px 0; padding: 9px 12px; display: flex; justify-content: space-between; gap: 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--background-secondary); color: var(--foreground-secondary); font-size: 12px; }
+.runBar > span { display: flex; align-items: center; gap: 8px; }
+.changeBanner { margin-top: 12px; padding: 10px 13px; display: flex; align-items: center; gap: 8px; border-left: 3px solid var(--accent-text); background: var(--accent-soft); font-size: 12px; }
+.changeBanner span { color: var(--foreground-secondary); }
+.collection { margin-top: 18px; display: grid; gap: 10px; }
+.collection article { padding: 13px 15px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
+.collection article > div { min-width: 0; display: grid; gap: 3px; }
+.collection span, .collection p { color: var(--foreground-tertiary); font-size: 12px; }
+.collection p { margin: 0; overflow-wrap: anywhere; }
+.statusVocabulary { display: flex; flex-wrap: wrap; gap: 6px; }
 @media (max-width: 760px) { .workspace { grid-template-columns: 1fr; } .tree { max-height: 220px; } .diff { grid-template-columns: 1fr; } }

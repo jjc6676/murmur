@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronRight, Clock3, Copy, History, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Pin, PinOff, Plus, RefreshCw, Send, Sparkles, Trash2, X } from 'lucide-react';
+import { ChevronRight, Clock3, Copy, Eye, History, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Pilcrow, Pin, PinOff, Plus, RefreshCw, Send, Sparkles, Trash2, X } from 'lucide-react';
 import type { Note, NoteVersion } from '@shared/types';
 import { api, useEvent } from '../lib/api';
 import { useSettings } from '../lib/settings';
@@ -19,7 +19,7 @@ export function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [search, setSearch] = useState('');
-  const [sidebar, setSidebar] = useState(true);
+  const [sidebar, setSidebar] = useState(false);
   const [compact, setCompact] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [transformOpen, setTransformOpen] = useState(false);
@@ -29,12 +29,16 @@ export function App() {
   const [transforming, setTransforming] = useState(false);
   const [toast, setToast] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [formatting, setFormatting] = useState(true);
+  const [preview, setPreview] = useState(false);
+  const [activeAppName, setActiveAppName] = useState('active app');
   const saveTimer = useRef<number | undefined>(undefined);
   const pendingSave = useRef<{ noteId: string; patch: { title?: string; content?: string } } | null>(null);
   const active = tabs.find((tab) => tab.id === activeId)?.note ?? null;
 
   const loadNotes = useCallback(async () => setNotes(await api.notes.list({ query: search, limit: 30 })), [search]);
   useEffect(() => void loadNotes(), [loadNotes]);
+  useEffect(() => { void api.notes.sendTarget().then((app) => setActiveAppName(app || 'active app')); }, []);
   useEvent('notes:changed', ({ id }) => {
     void loadNotes();
     if (id && tabs.some((tab) => tab.id === id)) void api.notes.get(id).then((note) => note && setTabs((current) => current.map((tab) => tab.id === id ? { ...tab, note } : tab)));
@@ -143,13 +147,21 @@ export function App() {
             <input aria-label="Note title" value={active.title === 'Untitled' ? '' : active.title} placeholder="Untitled" onChange={(e) => save({ title: e.target.value })} />
             <button aria-label={active.pinned ? 'Unpin note' : 'Pin note'} onClick={() => void api.notes.update(active.id, { pinned: !active.pinned })}>{active.pinned ? <PinOff size={17} /> : <Pin size={17} />}</button>
           </div>
-          <RichEditor noteId={active.id} html={active.content} onChange={(content, source) => save({ content }, source)} />
+          {preview
+            ? <div className={styles.messagePreview} aria-label="Message preview"><div>{active.contentPreview || 'Your message preview will appear here.'}</div></div>
+            : <RichEditor noteId={active.id} html={active.content} showFormatting={formatting} onChange={(content, source) => save({ content }, source)} />}
           <footer className={styles.footer}>
             <div className={styles.dictate}><Kbd combo={settings.shortcuts.ptt.join('+') || 'PTT'} /> to dictate</div>
             <button onClick={() => void copy()}><Copy size={15} /> Copy</button>
+            <button aria-pressed={formatting} onClick={() => setFormatting((visible) => !visible)}><Pilcrow size={15} /> Formatting</button>
+            <button aria-pressed={preview} onClick={() => setPreview((visible) => !visible)}><Eye size={15} /> Preview</button>
             <button aria-pressed={transformOpen} onClick={() => { setTransformOpen(!transformOpen); setHistoryOpen(false); }}><Sparkles size={15} /> Transforms</button>
             <button aria-pressed={historyOpen} onClick={() => { setHistoryOpen(!historyOpen); setTransformOpen(false); }}><History size={15} /> History</button>
-            <button className={styles.send} onClick={() => void api.notes.sendToApp(active.id)}><Send size={15} /> Send in app</button>
+            <button className={styles.send} onClick={async () => {
+              const target = await api.notes.sendToApp(active.id);
+              if (target) showToast(`Sent in ${target.app}`);
+              else showToast('Couldn’t find an active app');
+            }}><Send size={15} /> Send in {activeAppName}</button>
           </footer>
         </> : <div className={styles.blank}><h2>No note open</h2><button onClick={() => void create()}>New note</button></div>}
       </section>

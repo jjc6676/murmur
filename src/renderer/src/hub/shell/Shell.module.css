@@ -171,3 +171,4 @@
 .sidebarScroll::-webkit-scrollbar {
   width: 6px;
 }
+.feedbackForm { display: grid; gap: 12px; }

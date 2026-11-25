@@ -1,4 +1,7 @@
 .page { max-width: 1080px; }
+.snapshot { margin: 8px 0 18px; display: flex; align-items: baseline; gap: 12px; }
+.snapshot strong { font: 500 26px/1.2 var(--font-serif); }
+.snapshot span { color: var(--foreground-tertiary); font-size: 13px; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
 .card { display: flex; flex-direction: column; gap: 12px; min-height: 170px; }
 .card h2, .card p { margin: 0; }
@@ -28,4 +31,17 @@
 .fact span, .fact strong { display: block; }
 .fact span { color: var(--foreground-tertiary); font-size: 12px; margin-bottom: 5px; }
 .privacy { display: flex; gap: 8px; color: var(--foreground-tertiary); font-size: 13px; }
+.intensity { width: fit-content; padding: 4px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); font-size: 12px; }
+.topicLock { display: flex; align-items: center; gap: 12px; min-height: 100px; color: var(--foreground-secondary); }
+.topicLock p { margin-top: 4px; color: var(--foreground-tertiary); }
+.meetingMetrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.meetingMetrics > div { padding: 12px; display: grid; gap: 3px; border-radius: 9px; background: var(--background-secondary); }
+.meetingMetrics strong { font-size: 22px; }
+.meetingMetrics span { color: var(--foreground-tertiary); font-size: 11px; }
+.topicWeeks { height: 120px; display: flex; align-items: end; justify-content: space-around; gap: 12px; border-bottom: 1px solid var(--border); }
+.topicWeeks > div { height: 100%; display: flex; align-items: end; gap: 3px; position: relative; }
+.topicWeeks > div > span { position: absolute; top: 0; left: 50%; transform: translateX(-50%); color: var(--foreground-tertiary); font-size: 10px; white-space: nowrap; }
+.topicWeeks i { width: 12px; border-radius: 3px 3px 0 0; background: var(--accent-text); opacity: .75; }
+.personaTags { display: flex; flex-wrap: wrap; gap: 6px; }
+.personaTags span { padding: 4px 7px; border: 1px solid var(--border); border-radius: 999px; color: var(--foreground-secondary); font-size: 11px; }
 @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .wide { grid-column: auto; } .voiceFacts { grid-template-columns: 1fr; } .category { grid-template-columns: 120px 1fr 42px; } }

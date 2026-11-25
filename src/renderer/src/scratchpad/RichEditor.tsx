@@ -46,9 +46,9 @@ function wrapSelection(root: HTMLElement, tag: keyof HTMLElementTagNameMap): voi
   selection?.selectAllChildren(wrapper);
 }
 
-interface Props { noteId: string; html: string; onChange(html: string, source?: 'typed' | 'dictated'): void }
+interface Props { noteId: string; html: string; showFormatting?: boolean; onChange(html: string, source?: 'typed' | 'dictated'): void }
 
-export function RichEditor({ noteId, html, onChange }: Props) {
+export function RichEditor({ noteId, html, showFormatting = true, onChange }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkText, setLinkText] = useState('');
@@ -147,8 +147,8 @@ export function RichEditor({ noteId, html, onChange }: Props) {
     else tableElement.remove();
   });
 
-  return <div className={styles.editorWrap}>
-    <div className={styles.formatting} aria-label="Formatting toolbar">
+  return <div className={`${styles.editorWrap} ${showFormatting ? '' : styles.noFormatting}`}>
+    {showFormatting && <div className={styles.formatting} aria-label="Formatting toolbar">
       <button aria-label="Bold" title="Bold" onMouseDown={(e) => { e.preventDefault(); apply(() => root.current && wrapSelection(root.current, 'strong')); }}><Bold size={16} /></button>
       <button aria-label="Italic" title="Italic" onMouseDown={(e) => { e.preventDefault(); apply(() => root.current && wrapSelection(root.current, 'em')); }}><Italic size={16} /></button>
       <button aria-label="Underline" title="Underline" onMouseDown={(e) => { e.preventDefault(); apply(() => root.current && wrapSelection(root.current, 'u')); }}><Underline size={16} /></button>
@@ -162,7 +162,7 @@ export function RichEditor({ noteId, html, onChange }: Props) {
       <select aria-label="Table actions" defaultValue="" onChange={(e) => { if (e.target.value) tableAction(e.target.value as Parameters<typeof tableAction>[0]); e.target.value = ''; }}>
         <option value="">Table…</option><option value="row-above">Add row above</option><option value="row-below">Add row below</option><option value="column-left">Add column left</option><option value="column-right">Add column right</option><option value="delete-row">Delete row</option><option value="delete-column">Delete column</option><option value="delete-table">Delete table</option>
       </select>
-    </div>
+    </div>}
     <div ref={root} className={styles.editor} contentEditable suppressContentEditableWarning aria-label="Note body" data-placeholder="Start writing…" onInput={changed} onPaste={paste} onDrop={drop} onDragOver={(e) => e.preventDefault()} />
     <div className={styles.dropHint}>Drop images to attach</div>
     {linkOpen && <div className={styles.linkDialog} role="dialog" aria-label="Edit link">
