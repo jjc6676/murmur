@@ -459,4 +459,6 @@ export interface LlmStatus {
   available: boolean;
   version: string | null;
   error: string | null;
+  /** Model the CLI uses when Murmur passes none (Codex: `model` in its config.toml). */
+  defaultModel: string | null;
 }

@@ -41,12 +41,16 @@ test('hold Ctrl+Win in Notepad: dictation is cleaned, pasted, listed on Home and
     }, 10_000, 'Notepad to be focused');
 
     // Hold the default push-to-talk shortcut while the fake microphone plays the sample.
+    // Always release: a failure while held would leave Ctrl+Win stuck down for the whole desktop.
     keyDown(VK.CONTROL);
     keyDown(VK.LWIN);
-    await waitFor(async () => (await invoke<{ phase: string }>(hub, 'dictation:getState')).phase === 'active_ptt', 5_000, 'recording to start');
-    await sleep(8_000);
-    keyUp(VK.LWIN);
-    keyUp(VK.CONTROL);
+    try {
+      await waitFor(async () => (await invoke<{ phase: string }>(hub, 'dictation:getState')).phase === 'active_ptt', 5_000, 'recording to start');
+      await sleep(8_000);
+    } finally {
+      keyUp(VK.LWIN);
+      keyUp(VK.CONTROL);
+    }
 
     const entry = await waitFor(async () => {
       const list = await invoke<HistoryEntry[]>(hub, 'history:list', { limit: 1 });

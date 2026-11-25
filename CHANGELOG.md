@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+
+- Fix: "write EPIPE" crash after dictating. Paste verification timed out on a still-starting text-reading helper, killed it, then wrote to the dead process. Slow replies no longer kill the helper, a dead helper can never crash the app, and it starts with Murmur.
+- Settings → AI & Speech: model dropdowns. Claude: Haiku / Sonnet / Opus or Custom…; Codex: Default (shows the model from your Codex config) or Custom….
+
 ## 0.2.0
 
 - Portable build: `Murmur-<version>-portable.exe` runs without installing and keeps its data in a `Murmur Data` folder next to the exe.

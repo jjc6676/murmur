@@ -57,42 +57,71 @@ export interface FocusedText {
   url: string | null;
 }
 
-let proc: ChildProcessWithoutNullStreams | null = null;
-let buffer = '';
-const waiters: ((line: string) => void)[] = [];
+interface Helper {
+  proc: ChildProcessWithoutNullStreams;
+  waiters: ((line: string) => void)[];
+  alive: boolean;
+}
 
-function ensure(): ChildProcessWithoutNullStreams {
-  if (proc && proc.exitCode === null) return proc;
+const EMPTY_LINE = '{"ok":false,"value":"","name":"","control":""}';
+let helper: Helper | null = null;
+
+/** Retire a helper: no new requests go to it, and anything still waiting on it gets an empty result. */
+function retire(h: Helper, kill: boolean): void {
+  if (!h.alive) return;
+  h.alive = false;
+  if (helper === h) helper = null;
+  while (h.waiters.length) h.waiters.shift()?.(EMPTY_LINE);
+  if (kill) h.proc.kill();
+}
+
+function ensure(): Helper {
+  if (helper?.alive) return helper;
   const encoded = Buffer.from(SCRIPT, 'utf16le').toString('base64');
-  const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true, stdio: 'pipe' });
-  p.stdout.setEncoding('utf8').on('data', (d: string) => {
+  const proc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], { windowsHide: true, stdio: 'pipe' });
+  const h: Helper = { proc, waiters: [], alive: true };
+  let buffer = '';
+  proc.stdout.setEncoding('utf8').on('data', (d: string) => {
     buffer += d;
     let i: number;
     while ((i = buffer.indexOf('\n')) >= 0) {
       const line = buffer.slice(0, i).trim();
       buffer = buffer.slice(i + 1);
-      if (line.startsWith('{')) waiters.shift()?.(line);
+      if (line.startsWith('{')) h.waiters.shift()?.(line);
     }
   });
-  p.on('exit', () => {
-    proc = null;
-    while (waiters.length) waiters.shift()?.('{"ok":false,"value":"","name":"","control":""}');
-  });
-  proc = p;
-  return p;
+  // A helper that dies (killed after a timeout, PowerShell crash) must never take the app down:
+  // writes to its closed stdin raise EPIPE asynchronously on the stream.
+  proc.on('error', () => retire(h, false));
+  proc.stdin.on('error', () => retire(h, true));
+  proc.stdout.on('error', () => retire(h, true));
+  proc.on('exit', () => retire(h, false));
+  helper = h;
+  return h;
 }
 
 /** Read the focused element's text (≤20k chars). Resolves with ok:false on timeout or unsupported controls. */
 export function readFocusedText(timeoutMs = 1500, includeWindowContext = false): Promise<FocusedText> {
-  const p = ensure();
   const { promise, resolve } = Promise.withResolvers<FocusedText>();
   const empty = (): FocusedText => ({ ok: false, value: '', selected: '', url: null, name: '', control: '' });
-  const timer = setTimeout(() => {
+  const h = ensure();
+  if (!h.alive || !h.proc.stdin.writable) {
+    retire(h, true);
     resolve(empty());
-    p.kill();
-  }, timeoutMs);
+    return promise;
+  }
+  let answered = false;
+  // Short timeouts only stop *this caller* from waiting. The request stays queued so the helper's reply still
+  // lines up with it; a slow reply (e.g. PowerShell still loading UI Automation) is not a reason to kill it.
+  const timer = setTimeout(() => resolve(empty()), timeoutMs);
+  // A helper that hasn't answered a request in 15 s is wedged: replace it.
+  const watchdog = setTimeout(() => {
+    if (!answered) retire(h, true);
+  }, Math.max(timeoutMs, 15_000));
   function onLine(line: string) {
+    answered = true;
     clearTimeout(timer);
+    clearTimeout(watchdog);
     try {
       const v: unknown = JSON.parse(line);
       if (v && typeof v === 'object' && 'ok' in v)
@@ -109,12 +138,18 @@ export function readFocusedText(timeoutMs = 1500, includeWindowContext = false):
       resolve(empty());
     }
   }
-  waiters.push(onLine);
-  p.stdin.write(includeWindowContext ? 'context\n' : 'read\n');
+  h.waiters.push(onLine);
+  h.proc.stdin.write(includeWindowContext ? 'context\n' : 'read\n', (err) => {
+    if (err) retire(h, true);
+  });
   return promise;
 }
 
 export function stopUia(): void {
-  proc?.kill();
-  proc = null;
+  if (helper) retire(helper, true);
+}
+
+/** Start the helper ahead of the first dictation so its startup cost isn't paid during a paste. */
+export function warmUia(): void {
+  if (process.platform === 'win32') ensure();
 }

@@ -470,12 +470,30 @@ function ExperimentalSection({ s, patch }: SectionProps) {
   </SettingGroup><SettingGroup title="Bulk import"><div className={styles.inline}><Button variant="outline" onClick={() => void importKind('dictionary')}>Import dictionary</Button><Button variant="outline" onClick={() => void importKind('snippets')}>Import snippets</Button></div></SettingGroup></>;
 }
 
+const CUSTOM_MODEL = '__custom__';
+const CLAUDE_MODELS = [
+  { value: 'haiku', label: 'Haiku — fastest' },
+  { value: 'sonnet', label: 'Sonnet — balanced' },
+  { value: 'opus', label: 'Opus — strongest' },
+];
+
+/** Preset dropdown plus "Custom…" for any model ID the CLI accepts. */
+function ModelPicker({ label, value, presets, onChange }: { label: string; value: string; presets: { value: string; label: string }[]; onChange: (model: string) => void }) {
+  const [custom, setCustom] = useState(!presets.some((preset) => preset.value === value));
+  return <div className={styles.inline}>
+    <Select ariaLabel={label} value={custom ? CUSTOM_MODEL : value} options={[...presets, { value: CUSTOM_MODEL, label: 'Custom…' }]} onChange={(next) => { setCustom(next === CUSTOM_MODEL); if (next !== CUSTOM_MODEL) onChange(next); }} />
+    {custom && <Input aria-label={`${label} ID`} placeholder="Model ID" value={value} onChange={(e) => onChange(e.target.value.trim())} />}
+  </div>;
+}
+
 function AiSection({ s, patch }: SectionProps) {
   const [status, setStatus] = useState('');
   const [test, setTest] = useState('');
   const [models, setModels] = useState<AsrModelInfo[]>([]);
   const [asrStatus, setAsrStatus] = useState('');
   const [progress, setProgress] = useState<Record<string, number>>({});
+  const [codexDefault, setCodexDefault] = useState<string | null>(null);
+  useEffect(() => { void api.engines.llmStatus('codex').then((r) => setCodexDefault(r.defaultModel)); }, []);
   const probe = (provider: LlmProvider) => void api.engines.llmStatus(provider).then((r) => setStatus(r.available ? `${r.version ?? provider} available` : r.error ?? `${provider} unavailable`));
   useEffect(() => { probe(s.llm.provider); void api.engines.asrModels().then(setModels); void api.engines.asrStatus().then((r) => setAsrStatus(r.ready ? `${r.model} ready` : r.error ?? 'Not ready')); }, [s.llm.provider]);
   useEvent('asr:download', (p) => { setProgress((old) => ({ ...old, [p.id]: p.total ? p.received / p.total : 0 })); if (p.done) void api.engines.asrModels().then(setModels); });
@@ -483,8 +501,8 @@ function AiSection({ s, patch }: SectionProps) {
   return <><SectionTitle>AI &amp; Speech</SectionTitle><SettingGroup title="AI provider">
     <SettingRow title="Provider" description={status}><Segmented value={s.llm.provider} options={[{ value: 'claude', label: 'Claude' }, { value: 'codex', label: 'Codex' }, { value: 'none', label: 'None' }]} onChange={(provider) => void patch({ llm: { ...s.llm, provider } })} /></SettingRow>
     <SettingRow title="Test provider" description={test || 'Run a small local CLI request'}><Button variant="outline" disabled={s.llm.provider === 'none'} onClick={() => { setTest('Testing…'); void api.engines.testLlm(s.llm.provider).then((r) => setTest(`${r.ok ? 'Ready' : 'Failed'} in ${r.ms}ms — ${r.output}`)); }}>Test</Button></SettingRow>
-    <SettingRow title="Claude model"><Input value={s.llm.claudeModel} onChange={(e) => void patch({ llm: { ...s.llm, claudeModel: e.target.value } })} /></SettingRow>
-    <SettingRow title="Codex model"><Input placeholder="Default" value={s.llm.codexModel} onChange={(e) => void patch({ llm: { ...s.llm, codexModel: e.target.value } })} /></SettingRow>
+    <SettingRow title="Claude model" description="Aliases always map to the newest model in that family"><ModelPicker label="Claude model" value={s.llm.claudeModel} presets={CLAUDE_MODELS} onChange={(claudeModel) => void patch({ llm: { ...s.llm, claudeModel } })} /></SettingRow>
+    <SettingRow title="Codex model" description="Default uses the model set in your Codex config"><ModelPicker label="Codex model" value={s.llm.codexModel} presets={[{ value: '', label: codexDefault ? `Default (${codexDefault})` : 'Default (Codex config)' }]} onChange={(codexModel) => void patch({ llm: { ...s.llm, codexModel } })} /></SettingRow>
     <SettingRow title="Timeout"><Input aria-label="AI timeout seconds" type="number" min={5} max={300} value={s.llm.timeoutSec} onChange={(e) => void patch({ llm: { ...s.llm, timeoutSec: Number(e.target.value) } })} /></SettingRow>
   </SettingGroup><SettingGroup title="Speech model">
     <p className={styles.muted}>Status: {asrStatus}</p>

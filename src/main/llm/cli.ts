@@ -3,7 +3,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import type { LlmProvider } from '@shared/types';
 
 export interface ResolvedCommand {
@@ -158,16 +158,29 @@ export async function complete(cfg: LlmConfig, req: LlmRequest): Promise<string>
   }
 }
 
-/** Probe a provider: resolves the binary and reads its version. */
-export async function probe(provider: LlmProvider): Promise<{ available: boolean; version: string | null; error: string | null }> {
-  if (provider === 'none') return { available: false, version: null, error: 'No provider selected' };
+/** Codex's configured default model (`model = "..."` in $CODEX_HOME/config.toml, default ~/.codex). */
+function codexDefaultModel(): string | null {
+  const file = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'config.toml');
+  try {
+    // Top-level key only: stop at the first [table] header.
+    const top = readFileSync(file, 'utf8').split(/^\s*\[/m)[0];
+    return /^\s*model\s*=\s*"([^"]+)"/m.exec(top)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Probe a provider: resolves the binary, reads its version and (Codex) its default model. */
+export async function probe(provider: LlmProvider): Promise<{ available: boolean; version: string | null; error: string | null; defaultModel: string | null }> {
+  if (provider === 'none') return { available: false, version: null, error: 'No provider selected', defaultModel: null };
+  const defaultModel = provider === 'codex' ? codexDefaultModel() : null;
   const cmd = resolveCli(provider);
-  if (!cmd) return { available: false, version: null, error: `${provider} CLI not found on PATH` };
+  if (!cmd) return { available: false, version: null, error: `${provider} CLI not found on PATH`, defaultModel };
   try {
     const r = await runProcess(cmd, ['--version'], '', 15_000);
-    return { available: r.code === 0, version: r.stdout.trim().split('\n')[0] || null, error: r.code === 0 ? null : r.stderr.trim().slice(0, 300) };
+    return { available: r.code === 0, version: r.stdout.trim().split('\n')[0] || null, error: r.code === 0 ? null : r.stderr.trim().slice(0, 300), defaultModel };
   } catch (e) {
-    return { available: false, version: null, error: e instanceof Error ? e.message : String(e) };
+    return { available: false, version: null, error: e instanceof Error ? e.message : String(e), defaultModel };
   }
 }
 

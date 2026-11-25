@@ -153,6 +153,12 @@ test('onboarding completes and settings persist across every section', async () 
     await hub.getByRole('button', { name: 'None' }).click();
     await hub.getByRole('button', { name: 'Claude' }).click();
     expect((await invoke<Settings>(hub, 'settings:get')).llm.provider).toBe('claude');
+    await hub.getByLabel('Claude model', { exact: true }).selectOption('sonnet');
+    await expect.poll(async () => (await invoke<Settings>(hub, 'settings:get')).llm.claudeModel).toBe('sonnet');
+    await hub.getByLabel('Codex model', { exact: true }).selectOption('__custom__');
+    await hub.getByLabel('Codex model ID').fill('my-codex-model');
+    await expect.poll(async () => (await invoke<Settings>(hub, 'settings:get')).llm.codexModel).toBe('my-codex-model');
+    await hub.getByLabel('Claude model', { exact: true }).selectOption('haiku');
     await screenshot(hub, 'murmur-settings-ai-speech.png');
 
     await settingsDialog.getByRole('button', { name: 'Connectors', exact: true }).click();

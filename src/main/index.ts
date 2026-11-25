@@ -6,7 +6,7 @@ import { registerFeatures } from './features';
 import { startAsr } from './features/engines';
 import { restoreMediaAfterCrash } from './features/mediaDuck';
 import { startWatchers } from './watchers';
-import { stopUia } from './native/uia';
+import { stopUia, warmUia } from './native/uia';
 import { setupShortcuts } from './shortcuts';
 import { createTray } from './tray';
 import { ensureCapture, ensureHub, ensureStatus, getWindow } from './windows';
@@ -38,6 +38,7 @@ if (!app.requestSingleInstanceLock()) {
     startWatchers();
     setupShortcuts();
     void startAsr();
+    warmUia();
     ensureCapture();
     const s = ctx.settings.get();
     if (s.showFlowBar && (s.onboardingComplete || s.onboardingDeferred)) ensureStatus();
