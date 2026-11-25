@@ -1,6 +1,6 @@
 // Events broadcast from main to renderer windows.
 import type { Settings } from './settings';
-import type { DictationState, RecorderState, Toast, TranscriptSegment } from './types';
+import type { DictationState, MemoryStatus, RecorderState, Toast, TranscriptSegment } from './types';
 
 export interface MurmurEvents {
   'settings:changed': Settings;
@@ -13,6 +13,7 @@ export interface MurmurEvents {
   'recorder:state': RecorderState;
   'recorder:segment': TranscriptSegment;
   'notifications:changed': null;
+  'memory:status': MemoryStatus;
   'toast:show': Toast;
   'toast:hide': { id: string };
   'asr:download': { id: string; received: number; total: number; done: boolean; error: string | null };

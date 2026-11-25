@@ -1,0 +1,16 @@
+.toolbar { display: flex; gap: 12px; margin: 18px 0 24px; }
+.toolbar > :first-child { flex: 1; }
+.section { margin: 24px 0; }
+.section h2 { font-size: 13px; color: var(--foreground-tertiary); }
+.gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.skill { min-height: 140px; text-align: left; padding: 18px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-md); display: flex; flex-direction: column; gap: 9px; }
+.skill:hover { border-color: var(--foreground-tertiary); }
+.skill strong { font-size: 16px; }
+.skill span { color: var(--foreground-tertiary); line-height: 1.4; }
+.command { margin-top: auto; font-family: var(--font-mono); font-size: 12px; }
+.detail { display: flex; flex-direction: column; gap: 16px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.meetings { max-height: 280px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.result { white-space: pre-wrap; max-height: 430px; overflow: auto; padding: 16px; background: var(--background-tertiary); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: 13px; }
+@media (max-width: 800px) { .gallery { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .gallery { grid-template-columns: 1fr; } }
