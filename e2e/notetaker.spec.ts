@@ -54,8 +54,9 @@ test('records, summarizes, organizes, imports, chats, and exposes MCP', async ()
 
   await hub.getByRole('link', { name: 'Notetaker', exact: true }).click();
   await hub.getByRole('tab', { name: 'Folders' }).click();
-  hub.once('dialog', (dialog) => dialog.accept('Product'));
   await hub.getByRole('button', { name: 'New folder' }).click();
+  await hub.getByLabel('Folder name').fill('Product');
+  await hub.getByRole('button', { name: 'Save' }).click();
   await expect(hub.getByText('Product', { exact: true })).toBeVisible();
   await hub.getByRole('tab', { name: 'Past notes' }).click();
   await hub.getByRole('link', { name: /Weekly product sync/ }).click();

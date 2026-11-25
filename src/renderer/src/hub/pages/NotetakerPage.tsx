@@ -3,7 +3,7 @@ import { CalendarDays, FileAudio, Folder, Import, Search, Settings, Video } from
 import { Link } from 'react-router-dom';
 import type { CalendarEvent, Folder as FolderType, MeetingListItem } from '@shared/types';
 import { api, errorMessage, useEvent } from '../../lib/api';
-import { Button, EmptyState, IconButton, Input, Page, PageHeader, Tabs } from '../../ui';
+import { Button, ConfirmDialog, Dialog, EmptyState, IconButton, Input, Page, PageHeader, Tabs } from '../../ui';
 import { toast, useHubUi } from '../state';
 import '../notetaker/notetaker.css';
 
@@ -16,6 +16,8 @@ export function NotetakerPage() {
   const [meetings, setMeetings] = useState<MeetingListItem[]>([]);
   const [folders, setFolders] = useState<FolderType[]>([]);
   const [upcoming, setUpcoming] = useState<CalendarEvent[]>([]);
+  const [folderEditor, setFolderEditor] = useState<{ id: string | null; name: string } | null>(null);
+  const [deletingFolder, setDeletingFolder] = useState<FolderType | null>(null);
 
   const refresh = useCallback(async () => {
     const [meetingRows, folderRows, calendarRows] = await Promise.all([
@@ -43,11 +45,12 @@ export function NotetakerPage() {
     }
   };
 
-  const createFolder = async () => {
-    const name = window.prompt('Folder name');
-    if (!name) return;
+  const saveFolder = async () => {
+    if (!folderEditor?.name.trim()) return;
     try {
-      await api.meetings.createFolder(name);
+      if (folderEditor.id) await api.meetings.renameFolder(folderEditor.id, folderEditor.name);
+      else await api.meetings.createFolder(folderEditor.name);
+      setFolderEditor(null);
       await refresh();
     } catch (error) {
       toast(errorMessage(error), { tone: 'error' });
@@ -122,7 +125,7 @@ export function NotetakerPage() {
 
         {view === 'folders' && (
           <div className="nt-folders">
-            <div><Button size="sm" icon={<Folder size={16} />} onClick={() => void createFolder()}>New folder</Button></div>
+            <div><Button size="sm" icon={<Folder size={16} />} onClick={() => setFolderEditor({ id: null, name: '' })}>New folder</Button></div>
             {folders.map((folder) => (
               <div className="nt-folder" key={folder.id}>
                 <Folder size={18} />
@@ -130,14 +133,34 @@ export function NotetakerPage() {
                   <div className="nt-title">{folder.name}</div><div className="nt-subtle">{folder.meetingCount} meetings</div>
                 </button>
                 <div className="nt-folder-actions">
-                  <Button size="sm" variant="ghost" onClick={() => { const name = window.prompt('Rename folder', folder.name); if (name) void api.meetings.renameFolder(folder.id, name).then(refresh); }}>Rename</Button>
-                  <Button size="sm" variant="ghost" onClick={() => { if (window.confirm(`Delete “${folder.name}”? Meetings will stay in your library.`)) void api.meetings.deleteFolder(folder.id).then(refresh); }}>Delete</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setFolderEditor({ id: folder.id, name: folder.name })}>Rename</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setDeletingFolder(folder)}>Delete</Button>
                 </div>
               </div>
             ))}
             {!folders.length && <EmptyState icon={<Search />} title="No folders" body="Create folders to keep related meetings together." />}
           </div>
         )}
+        <Dialog
+          open={folderEditor !== null}
+          onClose={() => setFolderEditor(null)}
+          title={folderEditor?.id ? 'Rename folder' : 'New folder'}
+          footer={<><Button variant="ghost" onClick={() => setFolderEditor(null)}>Cancel</Button><Button onClick={() => void saveFolder()} disabled={!folderEditor?.name.trim()}>Save</Button></>}
+        >
+          <Input autoFocus aria-label="Folder name" placeholder="Folder name" value={folderEditor?.name ?? ''} onChange={(event) => setFolderEditor((current) => current ? { ...current, name: event.target.value } : current)} onKeyDown={(event) => { if (event.key === 'Enter') void saveFolder(); }} />
+        </Dialog>
+        <ConfirmDialog
+          open={deletingFolder !== null}
+          title="Delete folder?"
+          body={`Meetings in “${deletingFolder?.name ?? ''}” will stay in your library.`}
+          confirmLabel="Delete folder"
+          danger
+          onClose={() => setDeletingFolder(null)}
+          onConfirm={() => {
+            if (deletingFolder) void api.meetings.deleteFolder(deletingFolder.id).then(refresh);
+            setDeletingFolder(null);
+          }}
+        />
       </div>
     </Page>
   );

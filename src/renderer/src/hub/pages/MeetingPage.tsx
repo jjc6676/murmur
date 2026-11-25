@@ -125,7 +125,22 @@ export function MeetingPage() {
           <form className="chat-form" onSubmit={(event) => void ask(event)}><Input value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask anything, or type / for Skills" aria-label="Ask about this meeting" /><Button type="submit" loading={asking}>Send</Button></form>
           <div className="skill-hints">Try /follow-up-email · /decision-log · /open-questions</div>
           <h3><Folder size={16} /> Folders</h3>
-          {folders.map((folder) => <Checkbox key={folder.id} checked={meeting.folderIds.includes(folder.id)} label={folder.name} onChange={(checked) => { const next = checked ? [...meeting.folderIds, folder.id] : meeting.folderIds.filter((folderId) => folderId !== folder.id); void api.meetings.setFolders(meeting.id, next).then(() => setMeeting({ ...meeting, folderIds: next })); }} />)}
+          {folders.map((folder) => (
+            <Checkbox
+              key={folder.id}
+              checked={meeting.folderIds.includes(folder.id)}
+              label={folder.name}
+              onChange={(checked) => {
+                const previous = meeting.folderIds;
+                const next = checked ? [...previous, folder.id] : previous.filter((folderId) => folderId !== folder.id);
+                setMeeting({ ...meeting, folderIds: next });
+                void api.meetings.setFolders(meeting.id, next).catch((error: unknown) => {
+                  setMeeting((current) => current ? { ...current, folderIds: previous } : current);
+                  toast(errorMessage(error), { tone: 'error' });
+                });
+              }}
+            />
+          ))}
           {!folders.length && <span className="nt-subtle">Create folders from the Notetaker library.</span>}
           <Button variant="danger" icon={<Trash2 size={15} />} onClick={() => { if (window.confirm('Delete this meeting? Its notes and transcript cannot be recovered.')) void api.meetings.remove(meeting.id).then(() => navigate('/notetaker')); }}>Delete meeting</Button>
         </aside>
