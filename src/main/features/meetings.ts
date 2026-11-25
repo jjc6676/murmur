@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { app, dialog, shell } from 'electron';
@@ -94,6 +94,80 @@ async function importFile(filePath: string): Promise<Meeting> {
   const meeting = createImportedMeeting(filePath, segments, extension.slice(1));
   getCtx().db.update('meetings', meeting.id, { audioPath: filePath, language: result.language });
   return requireMeeting(meeting.id);
+}
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let quoted = false;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (char === '"') {
+      if (quoted && text[index + 1] === '"') {
+        cell += '"';
+        index++;
+      } else quoted = !quoted;
+    } else if (char === ',' && !quoted) {
+      row.push(cell);
+      cell = '';
+    } else if ((char === '\n' || char === '\r') && !quoted) {
+      if (char === '\r' && text[index + 1] === '\n') index++;
+      row.push(cell);
+      if (row.some((value) => value.trim())) rows.push(row);
+      row = [];
+      cell = '';
+    } else {
+      cell += char;
+    }
+  }
+  row.push(cell);
+  if (row.some((value) => value.trim())) rows.push(row);
+  return rows;
+}
+
+function csvFiles(root: string): string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) found.push(...csvFiles(path));
+    else if (entry.name.toLowerCase().endsWith('.csv')) found.push(path);
+  }
+  return found;
+}
+
+async function importGranolaCsv(filePath: string): Promise<{ imported: number; total: number }> {
+  const size = statSync(filePath).size;
+  if (!size) throw new Error('The Granola export is empty.');
+  if (size > 100 * 1024 * 1024) throw new Error('The Granola export is larger than 100 MB.');
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(filePath));
+  } catch {
+    throw new Error('The Granola CSV must be UTF-8 encoded.');
+  }
+  const rows = parseCsv(text);
+  if (rows.length < 2) throw new Error('The Granola CSV contains no meetings.');
+  const headers = rows[0].map((header) => header.replace(/^\uFEFF/, '').trim().toLowerCase());
+  const titleIndex = headers.findIndex((header) => ['title', 'meeting title', 'document title'].includes(header));
+  const transcriptIndex = headers.findIndex((header) => ['transcript', 'notes', 'content'].includes(header));
+  if (titleIndex < 0 || transcriptIndex < 0) throw new Error('The Granola CSV needs Title and Transcript (or Notes) columns.');
+  const meetings = rows.slice(1)
+    .map((columns) => ({ title: columns[titleIndex]?.trim(), transcript: columns[transcriptIndex]?.trim() }))
+    .filter((row): row is { title: string; transcript: string } => Boolean(row.title && row.transcript));
+  if (!meetings.length) throw new Error('The Granola export contains no non-empty meetings.');
+  let imported = 0;
+  broadcast('meetings:importProgress', { current: 0, total: meetings.length, done: false });
+  for (const meeting of meetings) {
+    if (granolaCancelRequested) break;
+    createImportedMeeting(`${meeting.title}.txt`, parseTranscript(meeting.transcript), 'granola');
+    imported++;
+    broadcast('meetings:importProgress', { current: imported, total: meetings.length, done: false });
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setImmediate(resolve);
+    await promise;
+  }
+  broadcast('meetings:importProgress', { current: imported, total: meetings.length, done: true });
+  return { imported, total: meetings.length };
 }
 
 function rowToChat(row: { id: string; meetingId: string; role: 'user' | 'assistant'; content: string; status: 'done' | 'pending' | 'failed'; createdAt: string }): MeetingChatMessage {
@@ -225,6 +299,17 @@ export function registerMeetings(): void {
       getCtx().db.run('UPDATE transcript_corrections SET revertedAt = ? WHERE meetingId = ? AND entryId = ? AND revertedAt IS NULL', nowIso(), id, segmentId);
       return saveTranscript(id, meeting.transcript.map((item) => item.id === segmentId ? { ...item, text: item.originalText!, edited: false, originalText: undefined } : item));
     },
+    deleteSegment(id, segmentId) {
+      const meeting = requireMeeting(id);
+      const segment = meeting.transcript.find((item) => item.id === segmentId);
+      if (!segment) throw new Error('Transcript line not found');
+      return saveTranscript(id, meeting.transcript.filter((item) => item.id !== segmentId));
+    },
+    restoreSegment(id, segment) {
+      const meeting = requireMeeting(id);
+      if (meeting.transcript.some((item) => item.id === segment.id)) return meeting;
+      return saveTranscript(id, [...meeting.transcript, segment].sort((left, right) => left.start - right.start));
+    },
     remove(id) {
       const meeting = requireMeeting(id);
       if (meeting.importSource) getCtx().db.run('INSERT OR REPLACE INTO import_tombstones (source, externalId, deletedAt) VALUES (?, ?, ?)', meeting.importSource, meeting.title, nowIso());
@@ -315,6 +400,33 @@ export function registerMeetings(): void {
       if (!granolaCancelRequested) getCtx().settings.set('notetaker', { ...settings.notetaker, granolaImported: true });
       broadcast('meetings:changed', { id: null });
       return { imported };
+    },
+    async importGranolaExport(filePath) {
+      const extension = extname(filePath).toLowerCase();
+      if (extension !== '.csv' && extension !== '.zip') throw new Error('Choose a Granola .csv or .zip export.');
+      granolaCancelRequested = false;
+      let csvPath = filePath;
+      let temporaryDirectory: string | null = null;
+      try {
+        if (extension === '.zip') {
+          temporaryDirectory = mkdtempSync(join(app.getPath('temp'), 'murmur-granola-'));
+          const escapedSource = filePath.replaceAll("'", "''");
+          const escapedDestination = temporaryDirectory.replaceAll("'", "''");
+          const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -LiteralPath '${escapedSource}' -DestinationPath '${escapedDestination}' -Force`], { encoding: 'utf8', windowsHide: true });
+          if (result.error || result.status !== 0) throw new Error(`Could not open the Granola ZIP${result.stderr ? `: ${result.stderr.trim()}` : '.'}`);
+          const files = csvFiles(temporaryDirectory);
+          if (!files.length) throw new Error('The Granola ZIP does not contain a CSV file.');
+          if (files.length > 1) throw new Error('The Granola ZIP must contain exactly one CSV file.');
+          csvPath = files[0];
+        }
+        const result = await importGranolaCsv(csvPath);
+        const settings = getCtx().settings.get();
+        if (!granolaCancelRequested) getCtx().settings.set('notetaker', { ...settings.notetaker, granolaImported: true });
+        broadcast('meetings:changed', { id: null });
+        return result;
+      } finally {
+        if (temporaryDirectory) rmSync(temporaryDirectory, { recursive: true, force: true });
+      }
     },
     cancelGranolaImport() {
       granolaCancelRequested = true;

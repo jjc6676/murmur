@@ -10,6 +10,7 @@ export interface MurmurEvents {
   'notes:changed': { id: string | null };
   'todos:changed': null;
   'meetings:changed': { id: string | null };
+  'meetings:importProgress': { current: number; total: number; done: boolean };
   'recorder:state': RecorderState;
   'recorder:segment': TranscriptSegment;
   'notifications:changed': null;

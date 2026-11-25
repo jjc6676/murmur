@@ -253,6 +253,9 @@ export interface CalendarEvent {
   end: string;
   conferenceUrl: string | null;
   source: string; // ics url/file label
+  attendees?: string[];
+  responseStatus?: 'accepted' | 'declined' | 'tentative' | 'needs_action';
+  color?: string | null;
 }
 
 export interface RecorderState {

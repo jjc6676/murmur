@@ -91,8 +91,8 @@ test('guards active recording lifecycle and preserves transcript corrections', a
   const active = await invoke<{ meetingId: string }>(hub, 'recorder:start', { title: 'Active sync' });
   await expect(hub.getByRole('button', { name: 'Open live meeting note' })).toBeVisible();
   await hub.getByRole('button', { name: 'Start', exact: true }).click();
-  await expect(hub.getByRole('dialog', { name: 'A meeting is already recording' })).toBeVisible();
-  await expect(hub.getByRole('button', { name: 'Switch recording' })).toBeVisible();
+  await expect(hub.getByRole('dialog', { name: 'Stop Notetaker?' })).toBeVisible();
+  await expect(hub.getByRole('button', { name: 'Stop and switch' })).toBeVisible();
   await hub.getByRole('button', { name: 'Cancel' }).click();
 
   await hub.getByRole('button', { name: 'Stop Notetaker' }).click();
@@ -113,6 +113,18 @@ test('guards active recording lifecycle and preserves transcript corrections', a
   const secondCatchUp = await invoke<{ content: string }[]>(hub, 'meetings:chat', imported[0].id, 'What did I miss?');
   expect(secondCatchUp.at(-1)?.content).toBe('Nothing new since you last looked.');
   expect(reverted.transcript[0]).toMatchObject({ text: segment.text, edited: false });
+  await hub.goto(`file://${join(ROOT, 'out', 'renderer', 'index.html')}#/notetaker/${imported[0].id}`);
+  await hub.getByRole('tab', { name: 'Transcript' }).click();
+  await hub.getByRole('button', { name: 'Edit', exact: true }).click();
+  await hub.getByLabel('Edit transcript line').fill('The project deadline is Tuesday.');
+  await hub.getByRole('button', { name: 'Save edit' }).click();
+  await expect(hub.getByText('Edited')).toBeVisible();
+  await hub.getByRole('button', { name: 'Original transcript' }).click();
+  await expect(hub.getByText(segment.text, { exact: true })).toBeVisible();
+  await hub.getByRole('button', { name: 'Delete transcript line' }).click();
+  await expect(hub.getByText('Transcript line deleted')).toBeVisible();
+  await hub.getByRole('button', { name: 'Undo' }).click();
+  await expect(hub.getByText('The project deadline is Tuesday.')).toBeVisible();
 
   expect(active.meetingId).toBeTruthy();
   await app.close();

@@ -7,6 +7,9 @@ interface RawEvent {
   end: Date;
   url: string | null;
   rrule: Record<string, string> | null;
+  attendees: string[];
+  responseStatus: CalendarEvent['responseStatus'];
+  color: string | null;
 }
 
 function parseDate(value: string): Date {
@@ -55,6 +58,16 @@ export function parseIcs(text: string, source = 'Calendar', rangeStart = new Dat
   const blocks = unfolded.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/g) ?? [];
   const events: RawEvent[] = [];
   for (const block of blocks) {
+    const attendeeLines = block.split(/\r?\n/).filter((line) => line.toUpperCase().startsWith('ATTENDEE'));
+    const attendees = attendeeLines.map((line) => {
+      const name = line.match(/(?:^|;)CN="?([^";:]+)"?/i)?.[1];
+      const address = line.slice(line.indexOf(':') + 1).replace(/^mailto:/i, '');
+      return unescapeText(name ?? address);
+    }).filter(Boolean);
+    const partstat = attendeeLines.map((line) => line.match(/(?:^|;)PARTSTAT=([^;:]+)/i)?.[1]?.toLowerCase()).find(Boolean);
+    const responseStatus: CalendarEvent['responseStatus'] = partstat === 'accepted' || partstat === 'declined' || partstat === 'tentative' || partstat === 'needs-action'
+      ? (partstat === 'needs-action' ? 'needs_action' : partstat)
+      : undefined;
     const fields = new Map<string, string>();
     for (const line of block.split(/\r?\n/)) {
       const colon = line.indexOf(':');
@@ -72,7 +85,10 @@ export function parseIcs(text: string, source = 'Calendar', rangeStart = new Dat
       end,
       url: fields.get('URL') ?? fields.get('CONFERENCE') ?? null,
       rrule: fields.has('RRULE') ? parseRule(fields.get('RRULE')!) : null,
+      attendees,
+      responseStatus,
+      color: fields.get('COLOR') ?? null,
     });
   }
-  return events.flatMap((event) => expand(event, rangeStart, rangeEnd)).map((event) => ({ id: event.uid, title: event.title, start: event.start.toISOString(), end: event.end.toISOString(), conferenceUrl: event.url, source })).sort((a, b) => a.start.localeCompare(b.start));
+  return events.flatMap((event) => expand(event, rangeStart, rangeEnd)).map((event) => ({ id: event.uid, title: event.title, start: event.start.toISOString(), end: event.end.toISOString(), conferenceUrl: event.url, source, attendees: event.attendees, responseStatus: event.responseStatus, color: event.color })).sort((a, b) => a.start.localeCompare(b.start));
 }

@@ -298,7 +298,7 @@ export const DEFAULT_SETTINGS: Settings = {
   llm: { provider: 'claude', claudeModel: 'haiku', codexModel: '', timeoutSec: 60 },
   asr: { model: 'base.en', threads: 4 },
   notetaker: {
-    notifyBeforeMeetingMin: 2,
+    notifyBeforeMeetingMin: 0.25,
     autoDetectCalls: true,
     autoStart: false,
     maxRecordingMin: 120,

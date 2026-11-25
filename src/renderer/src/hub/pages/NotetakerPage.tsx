@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CalendarDays, FileAudio, Folder, Import, Search, Settings, Video } from 'lucide-react';
+import { CalendarDays, FileAudio, Folder, Import, MoreHorizontal, Search, Settings, Video } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { CalendarEvent, Folder as FolderType, MeetingListItem, RecorderState } from '@shared/types';
 import { api, errorMessage, useEvent } from '../../lib/api';
-import { Button, ConfirmDialog, Dialog, EmptyState, IconButton, Input, Page, PageHeader, Select, Tabs, TextArea } from '../../ui';
+import { Button, ConfirmDialog, Dialog, EmptyState, IconButton, Input, Menu, Page, PageHeader, Select, Tabs, TextArea } from '../../ui';
 import { usePatchSettings, useSettings } from '../../lib/settings';
 import { toast, useHubUi } from '../state';
 import '../notetaker/notetaker.css';
@@ -30,6 +30,8 @@ export function NotetakerPage() {
   const [brief, setBrief] = useState<{ title: string; content: string } | null>(null);
   const [cloudImport, setCloudImport] = useState<string | null>(null);
   const [granolaPrompt, setGranolaPrompt] = useState(false);
+  const [granolaImporting, setGranolaImporting] = useState(false);
+  const [granolaProgress, setGranolaProgress] = useState<{ current: number; total: number } | null>(null);
 
   const refresh = useCallback(async () => {
     const [meetingRows, folderRows, calendarRows, recorderState] = await Promise.all([
@@ -47,6 +49,9 @@ export function NotetakerPage() {
   useEffect(() => { void refresh(); }, [refresh]);
   useEvent('meetings:changed', () => void refresh());
   useEvent('recorder:state', setRecorder);
+  useEvent('meetings:importProgress', ({ current, total, done }) => {
+    setGranolaProgress(done ? null : { current, total });
+  });
 
   const importMeetings = async () => {
     const path = await api.app.pickFile([{ name: 'Meetings', extensions: ['wav', 'mp3', 'm4a', 'txt', 'vtt', 'srt'] }]);
@@ -59,6 +64,22 @@ export function NotetakerPage() {
       toast(errorMessage(error), { tone: 'error' });
     }
   };
+  const importGranolaExport = async () => {
+    const path = await api.app.pickFile([{ name: 'Granola export', extensions: ['csv', 'zip'] }]);
+    if (!path) return;
+    setGranolaImporting(true);
+    setGranolaProgress({ current: 0, total: 0 });
+    try {
+      const { imported, total } = await api.meetings.importGranolaExport(path);
+      toast(`Imported ${imported} of ${total} Granola meetings`, { tone: imported === total ? 'success' : 'warning' });
+      await refresh();
+    } catch (error) {
+      toast(errorMessage(error), { tone: 'error' });
+    } finally {
+      setGranolaImporting(false);
+      setGranolaProgress(null);
+    }
+  };
   const startNotetaker = async (opts: { title?: string; calendarEventId?: string; isTourDemo?: boolean } = {}) => {
     if (recorder && ['awaiting_audio', 'recording', 'paused', 'finalizing'].includes(recorder.phase)) {
       setSwitchPrompt(true);
@@ -66,6 +87,10 @@ export function NotetakerPage() {
     }
     const next = await api.recorder.start(opts);
     if (next.meetingId) await api.recorder.openNotepad(next.meetingId);
+  };
+  const joinAndStart = async (event: CalendarEvent) => {
+    if (event.conferenceUrl) await api.app.openExternal(event.conferenceUrl);
+    await startNotetaker({ title: event.title, calendarEventId: event.id });
   };
 
   const filteredMeetings = meetings.filter((meeting) => {
@@ -99,6 +124,7 @@ export function NotetakerPage() {
             </>
           }
         />
+        {granolaImporting && <div className="recorder-banner" role="status" aria-live="polite"><strong>Importing Granola meetings{granolaProgress?.total ? ` ${granolaProgress.current} of ${granolaProgress.total}` : ''}…</strong><span>Do not close Murmur. Imported meetings are kept if you cancel later.</span><Button size="sm" variant="ghost" onClick={() => void api.meetings.cancelGranolaImport()}>Cancel</Button></div>}
 
         {!settings.notetaker.autoDetectCalls && (
           <div className="recorder-banner warning">
@@ -115,16 +141,34 @@ export function NotetakerPage() {
             <Button size="sm" onClick={() => void startNotetaker({ title: 'Notetaker guided tour', isTourDemo: true })}>Start</Button>
           </div>
           <div className="nt-label">Upcoming</div>
-          {upcoming.length ? upcoming.slice(0, 3).map((event) => (
-            <div className="nt-schedule-row" key={event.id}>
-              <div className="nt-schedule-icon"><CalendarDays size={18} /></div>
-              <div className="nt-grow"><div className="nt-title">{event.title}</div><div className="nt-subtle">{new Date(event.start).toLocaleString()}</div></div>
-              {event.conferenceUrl && <Button size="sm" variant="outline" aria-label={`Join ${event.title}`} onClick={() => void api.app.openExternal(event.conferenceUrl!)}>Join</Button>}
-              <Button size="sm" variant="ghost" onClick={() => void api.meetings.snoozeCalendar(event.id).then(() => toast('Reminder snoozed for 2 minutes'))}>Remind later</Button>
-              <Button size="sm" variant="ghost" onClick={() => void api.meetings.getBrief(event.id).then(setBrief)}>Brief</Button>
-              <Button size="sm" onClick={() => void startNotetaker({ title: event.title, calendarEventId: event.id })}>Start notes</Button>
-            </div>
-          )) : (
+          {upcoming.length ? upcoming.slice(0, 3).map((event) => {
+            const now = Date.now();
+            const startsAt = new Date(event.start).getTime();
+            const endsAt = new Date(event.end).getTime();
+            const conflict = upcoming.some((other) => other.id !== event.id && new Date(other.start).getTime() < endsAt && new Date(other.end).getTime() > startsAt);
+            const timing = startsAt <= now && endsAt >= now ? 'Now' : conflict ? 'Conflict' : undefined;
+            const response = event.responseStatus === 'declined' ? 'Declined' : event.responseStatus === 'tentative' ? 'Maybe' : undefined;
+            return (
+              <div className="nt-schedule-row" key={event.id}>
+                <div className="nt-schedule-icon" style={event.color ? { borderColor: event.color } : undefined}><CalendarDays size={18} /></div>
+                <div className="nt-grow"><div className="nt-title">{event.title}</div><div className="nt-subtle">{new Date(event.start).toLocaleString()}{event.attendees?.length ? ` · ${event.attendees.join(', ')}` : ''}{timing || response ? ` · ${timing ?? response}` : ''}</div></div>
+                {event.conferenceUrl && <Button size="sm" variant="outline" aria-label={`Join ${event.title}`} onClick={() => void api.app.openExternal(event.conferenceUrl!)}>Join meeting</Button>}
+                {event.conferenceUrl && <Menu
+                  trigger={(props) => <IconButton {...props} size="sm" label={`Open actions for ${event.title}`}><MoreHorizontal size={16} /></IconButton>}
+                  items={[
+                    { label: 'Join meeting', onSelect: () => void api.app.openExternal(event.conferenceUrl!) },
+                    { label: 'Join + Start', onSelect: () => void joinAndStart(event) },
+                    { label: 'Start notes', onSelect: () => void startNotetaker({ title: event.title, calendarEventId: event.id }) },
+                    { label: 'Show brief', onSelect: () => void api.meetings.getBrief(event.id).then(setBrief) },
+                  ]}
+                />}
+                <Button size="sm" variant="ghost" onClick={() => void api.meetings.snoozeCalendar(event.id).then(() => toast('Reminder snoozed for 2 minutes'))}>Remind later</Button>
+                <Button size="sm" variant="ghost" onClick={() => void api.meetings.getBrief(event.id).then(setBrief)}>Brief</Button>
+                <Button size="sm" variant="ghost" onClick={() => void startNotetaker({ title: event.title, calendarEventId: event.id })}>Start notes</Button>
+                {event.conferenceUrl && <Button size="sm" onClick={() => void joinAndStart(event)}>Join + Start</Button>}
+              </div>
+            );
+          }) : (
             <div className="nt-schedule-row">
               <div className="nt-schedule-icon"><CalendarDays size={18} /></div>
               <div className="nt-grow"><div className="nt-title">Connect your calendar</div><div className="nt-subtle">Get richer summaries and on-time meeting reminders</div></div>
@@ -194,9 +238,9 @@ export function NotetakerPage() {
         </Dialog>
         <Dialog open={brief !== null} onClose={() => setBrief(null)} title={brief?.title ?? 'Meeting brief'} footer={<Button onClick={() => setBrief(null)}>Done</Button>}><pre className="nt-brief">{brief?.content}</pre></Dialog>
         <Dialog open={cloudImport !== null} onClose={() => setCloudImport(null)} title={`Import from ${cloudImport ?? ''}`} footer={<Button onClick={() => setCloudImport(null)}>Done</Button>}><p>Murmur runs fully offline, so cloud account imports are unavailable. Export your meetings from {cloudImport} and use Import meetings instead.</p>{cloudImport === 'Fireflies' && <Input aria-label="Fireflies API key" placeholder="Fireflies API key" disabled />}</Dialog>
-        <Dialog open={switchPrompt} onClose={() => setSwitchPrompt(false)} title="A meeting is already recording" description="Choose what to do with the current recording." footer={<><Button variant="ghost" onClick={() => setSwitchPrompt(false)}>Cancel</Button><Button variant="outline" onClick={() => void api.recorder.start({ replaceActive: true }).then((next) => { setSwitchPrompt(false); if (next.meetingId) return api.recorder.openNotepad(next.meetingId); })}>Start new meeting</Button><Button onClick={() => void api.recorder.start({ replaceActive: true }).then((next) => { setSwitchPrompt(false); if (next.meetingId) return api.recorder.openNotepad(next.meetingId); })}>Switch recording</Button></>} />
+        <Dialog open={switchPrompt} onClose={() => setSwitchPrompt(false)} title="Stop Notetaker?" description="The current recording will be saved and can be resumed later. Stop it before switching to a new meeting?" footer={<><Button variant="ghost" onClick={() => setSwitchPrompt(false)}>Cancel</Button><Button onClick={() => void api.recorder.start({ replaceActive: true }).then((next) => { setSwitchPrompt(false); if (next.meetingId) return api.recorder.openNotepad(next.meetingId); })}>Stop and switch</Button></>} />
         <ConfirmDialog open={stopPrompt} title="Stop Notetaker?" body="The current recording will stop and Murmur will finish the transcript and summary." confirmLabel="Stop Notetaker" danger onClose={() => setStopPrompt(false)} onConfirm={() => { setStopPrompt(false); void api.recorder.stop(); }} />
-        <ConfirmDialog open={granolaPrompt} title="Continue importing from Granola?" body="Already written meetings stay in Murmur if you cancel later. You can return and finish the import at any time." confirmLabel="Continue import" onClose={() => setGranolaPrompt(false)} onConfirm={() => { setGranolaPrompt(false); void api.meetings.importGranola().then(({ imported }) => toast(`Imported ${imported} Granola meetings`)).catch((error: unknown) => toast(errorMessage(error), { tone: 'error' })); }} />
+        <ConfirmDialog open={granolaPrompt} title="Import Granola export?" body="Choose a Granola .zip or .csv export. Murmur validates the file and imports meetings locally; already written meetings stay if you cancel." confirmLabel="Choose export" onClose={() => setGranolaPrompt(false)} onConfirm={() => { setGranolaPrompt(false); void importGranolaExport(); }} />
         <ConfirmDialog
           open={deletingFolder !== null}
           title="Delete folder?"

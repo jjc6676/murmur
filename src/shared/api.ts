@@ -153,6 +153,8 @@ export interface MeetingsApi {
   renameSpeaker(id: string, speaker: string, name: string): Meeting;
   correctSegment(id: string, segmentId: string, expectedText: string, text: string): Meeting;
   revertSegment(id: string, segmentId: string): Meeting;
+  deleteSegment(id: string, segmentId: string): Meeting;
+  restoreSegment(id: string, segment: TranscriptSegment): Meeting;
   remove(id: string): void;
   regenerateSummary(id: string, template?: string): Meeting;
   chat(id: string, message: string): MeetingChatMessage[];
@@ -162,6 +164,7 @@ export interface MeetingsApi {
   exportMarkdown(id: string): string; // file path
   importFiles(paths: string[]): MeetingListItem[]; // audio (transcribed locally) or text transcripts
   importGranola(): { imported: number };
+  importGranolaExport(path: string): { imported: number; total: number };
   cancelGranolaImport(): void;
   listFolders(): Folder[];
   createFolder(name: string, description?: string): Folder;
@@ -186,6 +189,8 @@ export interface RecorderApi {
   systemAudioStatus(available: boolean, reason?: 'unavailable' | 'dropped'): RecorderState;
   splitScreen(): boolean;
   getWindowState(): { maximized: boolean; width: number; height: number };
+  toggleMaximize(): boolean;
+  toggleFullScreen(): boolean;
   setWindowSize(width: number, height: number): void;
   /** Capture window pushes mixed PCM16 16k for each source. */
   pushAudio(source: 'mic' | 'system', chunk: ArrayBuffer, level: number): void;

@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, readFileSync, rmSync, statfsSync, writeFileSync } from 'node:fs';
-import { clipboard, powerMonitor } from 'electron';
-import type { RecorderState, TranscriptSegment } from '@shared/types';
+import { clipboard, powerMonitor, shell } from 'electron';
+import type { CalendarEvent, RecorderState, TranscriptSegment } from '@shared/types';
 import { getCtx } from '../context';
 import { newId, nowIso } from '../db';
 import { broadcast, handle } from '../ipc';
@@ -300,6 +300,30 @@ export async function stopRecording(): Promise<RecorderState> {
   if (!hasAudio) {
     showToast({ key: 'MeetingNoAudio', title: 'Stopped meeting', body: 'No audio was recorded.', tone: 'warning', target: 'hub' });
   }
+  const capturedWords = current.segments.reduce((total, segment) => total + segment.text.trim().split(/\s+/).filter(Boolean).length, 0);
+  if (capturedWords > 0 && capturedWords <= 10) {
+    showToast({ key: 'ShortMeeting', title: 'That meeting was brief', body: 'Started by mistake? Open the note to keep or discard it — or try Notetaker again in your next conversation.', tone: 'info', target: 'hub', actions: [{ id: 'open', label: 'Review meeting' }] }, (action) => {
+      if (action === 'open') ensureHub(true, `/notetaker/${current.meetingId}`);
+    });
+  }
+  const autoStartSettings = getCtx().settings.get();
+  if (autoStartSettings.notetaker.autoStart && durationSec < 30) {
+    const cutoff = Date.now() - 7 * 86_400_000;
+    const rapidStops = [...getCtx().db.kvGet<number[]>('notetaker.rapidStops', []).filter((time) => time >= cutoff), Date.now()].slice(-2);
+    getCtx().db.kvSet('notetaker.rapidStops', rapidStops);
+    if (rapidStops.length === 2) {
+      showToast({ key: 'AutoStartRapidStop', title: 'Turn off auto-start?', body: 'You stopped Notetaker quickly twice. Murmur can wait for you to start it instead.', tone: 'info', target: 'hub', actions: [{ id: 'disable', label: 'Turn off auto-start' }, { id: 'keep', label: 'Keep enabled' }] }, (action) => {
+        if (action !== 'disable') return;
+        const latest = getCtx().settings.get();
+        getCtx().settings.set('notetaker', { ...latest.notetaker, autoStart: false, autoStartOptInState: 'disabled' });
+        showToast({ key: 'AutoStartDisabled', title: 'Auto-start turned off', body: 'Murmur will still remind you when meetings begin.', tone: 'success', target: 'hub', actions: [{ id: 'undo', label: 'Undo' }] }, (undoAction) => {
+          if (undoAction !== 'undo') return;
+          const undoSettings = getCtx().settings.get();
+          getCtx().settings.set('notetaker', { ...undoSettings.notetaker, autoStart: true, autoStartOptInState: 'enabled' });
+        });
+      });
+    }
+  }
   if (current.segments.length) {
     try {
       await generateMeetingSummary(current.meetingId);
@@ -337,8 +361,22 @@ export async function stopRecording(): Promise<RecorderState> {
 }
 
 export async function toggleRecording(): Promise<void> {
-  if (session) await stopRecording();
-  else await startRecording();
+  if (session) {
+    await stopRecording();
+    return;
+  }
+  const now = Date.now();
+  const next = getCtx().db.kvGet<CalendarEvent[]>('notetaker.calendar', []).find((event) => {
+    const start = new Date(event.start).getTime();
+    const end = new Date(event.end).getTime();
+    return Boolean(event.conferenceUrl) && start <= now + 15 * 60_000 && end >= now;
+  });
+  if (next?.conferenceUrl) {
+    await shell.openExternal(next.conferenceUrl);
+    await startRecording({ title: next.title, calendarEventId: next.id });
+    return;
+  }
+  await startRecording();
 }
 
 function isMeetingApp(processName: string, title: string): boolean {
@@ -444,6 +482,17 @@ export function registerRecorder(): void {
       const win = ensureRecorder(false);
       const [width, height] = win.getSize();
       return { maximized: win.isMaximized(), width, height };
+    },
+    toggleMaximize() {
+      const win = ensureRecorder(false);
+      if (win.isMaximized()) win.unmaximize();
+      else win.maximize();
+      return win.isMaximized();
+    },
+    toggleFullScreen() {
+      const win = ensureRecorder(false);
+      win.setFullScreen(!win.isFullScreen());
+      return win.isFullScreen();
     },
     setWindowSize(width, height) {
       const safeWidth = Math.max(360, Math.round(width));
