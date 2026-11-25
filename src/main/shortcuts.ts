@@ -3,8 +3,8 @@ import type { Settings, ShortcutAction } from '@shared/settings';
 import { getCtx } from './context';
 import { broadcast } from './ipc';
 import { sendChord, VK } from './native/win32';
-import { showToast } from './toasts';
-import { cancelDictation, copyLast, getDictationState, isDictating, pasteLast, startDictation, stopDictation } from './features/dictation';
+import { showNudge, showToast } from './toasts';
+import { cancelDictation, cancelDictationForOtherShortcut, copyLast, getDictationState, handleUndoShortcut, isDictating, pasteLast, startDictation, stopDictation } from './features/dictation';
 import { applyToSelection, cancelTransform } from './features/transforms';
 import { openScratchpad } from './features/notes';
 import { toggleRecording } from './features/recorder';
@@ -93,6 +93,22 @@ export function setupShortcuts(): void {
     const mf = settings.get().mouseFlow;
     if (button === mf.dictateButton) h.popo.down?.();
     else if (button === mf.enterButton) sendChord([], VK.RETURN);
+  });
+  hotkeys.on('key', (id, down) => {
+    if (!down) return;
+    if (id === 'Z' && hotkeys.isHeld('Ctrl')) handleUndoShortcut();
+    const st = getDictationState();
+    if (st.mode === 'ptt' && st.startedAt && Date.now() - st.startedAt <= 300) {
+      const allowed = new Set(settings.get().shortcuts.ptt.flatMap((combo) => combo.split('+')));
+      if (!allowed.has(id)) cancelDictationForOtherShortcut();
+    }
+  });
+  hotkeys.on('mouse', (button) => {
+    const mf = settings.get().mouseFlow;
+    if (mf.dictateButton === null && (button === 4 || button === 5)) {
+      if (!showNudge('MouseFlowDiscovery', { title: 'Want to dictate with your mouse?', body: 'Assign a side button to start hands-free dictation.', target: 'bar', actions: [{ id: 'settings', label: 'Set up Mouse Flow' }] }, { max: 1 }, (action) => action === 'settings' && broadcast('settings:open', { section: 'general' })))
+        showNudge('MouseFlowDiscoveryReminder', { title: 'You can dictate with your mouse', body: 'Set up a side button in Settings.', target: 'bar' }, { max: 2, minIntervalMs: 7 * 24 * 3600_000 });
+    }
   });
   bind(settings.get());
   settings.onChange((n, p) => {

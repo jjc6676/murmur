@@ -1,5 +1,5 @@
 // Speech (whisper models) and AI provider (Claude/Codex CLI) status, tests and model downloads.
-import { ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
 import { createWriteStream, existsSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -10,6 +10,8 @@ import { broadcast, handle } from '../ipc';
 import { paths } from '../paths';
 import { listModels } from '../asr/whisper';
 import { complete, probe } from '../llm/cli';
+import { showNudge, showToast } from '../toasts';
+import { isDictating, stopDictation } from './dictation';
 
 export const ASR_MODELS: Omit<AsrModelInfo, 'installed'>[] = [
   { id: 'tiny.en', label: 'Tiny (English) — fastest', sizeMb: 75, multilingual: false },
@@ -21,10 +23,46 @@ export const ASR_MODELS: Omit<AsrModelInfo, 'installed'>[] = [
 ];
 
 let asrError: string | null = null;
+let asrFailures = 0;
 // Audio input devices reported by the capture window (enumerateDevices only works in a renderer).
 let audioDevices: { deviceId: string; label: string }[] = [];
+let receivedInitialDevices = false;
+
+function bluetoothLabel(label: string): boolean {
+  return /(airpods?|bluetooth|hands[ -]?free|buds?|headset)/i.test(label);
+}
+
 ipcMain.on('capture:devices', (_e, list: { deviceId: string; label: string }[]) => {
+  const previous = audioDevices;
   audioDevices = list;
+  if (!receivedInitialDevices) {
+    receivedInitialDevices = true;
+    return;
+  }
+  const { settings } = getCtx();
+  const selected = settings.get().micDeviceId;
+  if (selected !== 'default' && !list.some((device) => device.deviceId === selected)) {
+    if (isDictating()) stopDictation();
+    showToast(
+      { key: 'MicDeviceUnavailable', title: 'Your selected microphone disconnected', body: 'Choose another microphone.', target: 'bar', tone: 'warning', actions: [{ id: 'choose', label: 'Choose Microphone' }] },
+      (action) => action === 'choose' && broadcast('settings:open', { section: 'general' }),
+    );
+  }
+  const added = list.filter((device) => !previous.some((old) => old.deviceId === device.deviceId));
+  for (const device of added) {
+    showToast(
+      { key: 'NewMicDetected', title: 'New mic detected', body: `Would you like to use ${device.label} with Murmur?`, target: 'bar', actions: [{ id: 'switch', label: 'Switch' }, { id: 'keep', label: "Don't switch" }] },
+      (action) => {
+        if (action !== 'switch') return;
+        settings.patch({ micDeviceId: device.deviceId });
+        showToast({ key: 'MicSwitched', title: `Using ${device.label}.`, target: 'bar', tone: 'success' });
+        if (bluetoothLabel(device.label)) {
+          showNudge('AirPodsWarning', { title: 'Bluetooth microphones can be unreliable', body: 'Keep your headset connected and nearby.', target: 'bar' }, { max: 2 });
+          showNudge('SuggestWiredMic', { title: 'A wired mic works best', body: 'For the most reliable dictation, try a wired or built-in microphone.', target: 'bar', actions: [{ id: 'choose', label: 'Select microphone' }] }, { max: 1 }, (id) => id === 'choose' && broadcast('settings:open', { section: 'general' }));
+        }
+      },
+    );
+  }
 });
 
 /** Start whisper with the configured model; reports status to renderers. */
@@ -34,8 +72,26 @@ export async function startAsr(): Promise<void> {
   try {
     await asr.start(s.model, s.threads);
     asrError = null;
+    asrFailures = 0;
   } catch (e) {
     asrError = e instanceof Error ? e.message : String(e);
+    asrFailures++;
+    showToast(
+      {
+        key: asrFailures >= 3 ? 'HelperPersistentFailure' : 'HelperLoadingError',
+        title: asrFailures >= 3 ? 'Murmur is having trouble starting' : 'Murmur is having trouble loading',
+        body: asrError,
+        target: 'bar',
+        tone: 'error',
+        actions: [{ id: 'restart', label: 'Restart Murmur' }],
+      },
+      (action) => {
+        if (action !== 'restart') return;
+        app.relaunch();
+        app.exit(0);
+      },
+    );
+    if (asrFailures < 3) setTimeout(() => void startAsr(), 1500);
   }
   broadcast('asr:status', { ready: asrError === null, model: s.model, error: asrError });
 }

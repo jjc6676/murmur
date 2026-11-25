@@ -51,6 +51,7 @@ export interface Settings {
   micRanking: string[]; // device labels in preference order
   languages: string[]; // ISO codes
   autoDetectLanguage: boolean;
+  hinglishEnabled: boolean;
   appLanguage: string | null; // null = system default
   theme: Theme;
   emailLocale: string | null;
@@ -71,6 +72,8 @@ export interface Settings {
   autoAddToDictionary: boolean;
   creatorMode: boolean;
   emailSignature: { enabled: boolean; option: 'written' | 'spoken' };
+  appTranscriptionFormats: { app: string; format: 'raw' | 'formatted' }[];
+  disabledApps: string[];
   // dictation / AI
   cleanupLevel: CleanupLevel;
   smartFormatting: { lists: boolean; backtrack: boolean; emails: boolean; spokenPunctuation: boolean };
@@ -90,6 +93,10 @@ export interface Settings {
   cursorIdeIntegration: boolean;
   jabraWearDetectionEnabled: boolean;
   contextAwareness: boolean;
+  toneMatchingEnabled: boolean;
+  shouldOCRScreenCapture: boolean;
+  autoCleanup: { diffShownCount: number };
+  contextualNudge: { mode: 'not_set' | 'all' | 'previously_used' | 'categories' };
   // engines
   llm: { provider: LlmProvider; claudeModel: string; codexModel: string; timeoutSec: number };
   asr: { model: string; threads: number };
@@ -120,6 +127,8 @@ export interface Settings {
     shouldSaveAxText: boolean;
     showDebugOutlines: boolean;
     preserveIntentsOnRestart: boolean;
+    isAutoInstructEnabled: boolean;
+    instructPasteOnEmptyContext: boolean;
   };
   // ui state
   sidebarOpen: boolean;
@@ -211,6 +220,7 @@ export const DEFAULT_SETTINGS: Settings = {
   micRanking: [],
   languages: ['en'],
   autoDetectLanguage: false,
+  hinglishEnabled: false,
   appLanguage: null,
   theme: 'light',
   emailLocale: null,
@@ -230,6 +240,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autoAddToDictionary: true,
   creatorMode: false,
   emailSignature: { enabled: false, option: 'written' },
+  appTranscriptionFormats: [],
+  disabledApps: [],
   cleanupLevel: 'light',
   smartFormatting: { lists: true, backtrack: true, emails: true, spokenPunctuation: true },
   styles: {
@@ -253,6 +265,10 @@ export const DEFAULT_SETTINGS: Settings = {
   cursorIdeIntegration: false,
   jabraWearDetectionEnabled: false,
   contextAwareness: true,
+  toneMatchingEnabled: false,
+  shouldOCRScreenCapture: false,
+  autoCleanup: { diffShownCount: 0 },
+  contextualNudge: { mode: 'not_set' },
   llm: { provider: 'claude', claudeModel: 'haiku', codexModel: '', timeoutSec: 60 },
   asr: { model: 'base.en', threads: 4 },
   notetaker: {
@@ -280,6 +296,8 @@ export const DEFAULT_SETTINGS: Settings = {
     shouldSaveAxText: false,
     showDebugOutlines: false,
     preserveIntentsOnRestart: false,
+    isAutoInstructEnabled: false,
+    instructPasteOnEmptyContext: false,
   },
   sidebarOpen: true,
   dictionarySort: 'newest',

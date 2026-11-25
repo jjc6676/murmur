@@ -39,6 +39,7 @@ export function FlowBar() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [hover, setHover] = useState(false);
   const [menu, setMenu] = useState(false);
+  const [devices, setDevices] = useState<{ deviceId: string; label: string }[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
   const hiddenUntil = settings.flowBarHiddenUntil;
   const [snoozed, setSnoozed] = useState(false);
@@ -61,6 +62,9 @@ export function FlowBar() {
     setTimeout(() => setToasts((list) => list.filter((x) => x.id !== t.id)), t.durationMs ?? (t.actions?.length ? 8000 : 4500));
   });
   useEvent('toast:hide', ({ id }) => setToasts((list) => list.filter((x) => x.id !== id)));
+  useEffect(() => {
+    if (menu) void api.engines.listAudioDevices().then(setDevices);
+  }, [menu]);
 
   // Click-through everywhere except over interactive content.
   const interactive = hover || menu;
@@ -103,6 +107,22 @@ export function FlowBar() {
 
       {menu && (
         <div className={s.menu} role="menu" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+          <div className={s.menuSection}>Microphone</div>
+          {devices.map((device) => (
+            <button key={device.deviceId} type="button" role="menuitemradio" aria-checked={settings.micDeviceId === device.deviceId} onClick={() => void api.settings.patch({ micDeviceId: device.deviceId })}>
+              {settings.micDeviceId === device.deviceId ? <Check size={14} /> : <span className={s.menuCheck} />} {device.label}
+            </button>
+          ))}
+          <div className={s.menuSection}>Auto Apply After Dictation</div>
+          <button type="button" role="menuitemcheckbox" aria-checked={settings.autoApplyAfterDictation.active} onClick={() => void api.settings.patch({ autoApplyAfterDictation: { ...settings.autoApplyAfterDictation, active: !settings.autoApplyAfterDictation.active } })}>
+            {settings.autoApplyAfterDictation.active ? <Check size={14} /> : <span className={s.menuCheck} />} Enabled
+          </button>
+          {settings.transforms.map((transform) => (
+            <button key={transform.id} type="button" role="menuitemradio" aria-checked={settings.autoApplyAfterDictation.transformId === transform.id} onClick={() => void api.settings.patch({ autoApplyAfterDictation: { active: true, transformId: transform.id } })}>
+              {settings.autoApplyAfterDictation.transformId === transform.id ? <Check size={14} /> : <span className={s.menuCheck} />} {transform.name}
+            </button>
+          ))}
+          <div className={s.menuSection}>Actions</div>
           <button type="button" role="menuitem" onClick={() => { setMenu(false); void api.dictation.pasteLast(); }}>
             <ClipboardPaste size={15} /> Paste last transcript
           </button>
@@ -176,14 +196,13 @@ export function FlowBar() {
         )}
         {phase === 'error' && <span className={s.label}>{st?.message ?? 'Something went wrong'}</span>}
         {!active && !busy && !done && phase !== 'error' && hover && (
-          <button type="button" className={s.hint} onClick={() => void api.dictation.start('popo')} title="Click to start hands-free dictation">
-            {ptt ? (
-              <>
-                Hold <Kbd combo={ptt} /> to dictate
-              </>
-            ) : (
-              'Click to dictate'
-            )}
+          <button
+            type="button"
+            className={s.hint}
+            onClick={() => st?.message === 'Voice-to-text disabled' ? void api.app.openSettings('experimental') : void api.dictation.start('popo')}
+            title={st?.message === 'Voice-to-text disabled' ? 'Voice-to-text is disabled for this app' : 'Click to start hands-free dictation'}
+          >
+            {st?.message === 'Voice-to-text disabled' ? 'Voice-to-text disabled' : ptt ? <>Hold <Kbd combo={ptt} /> to dictate</> : 'Click to dictate'}
           </button>
         )}
       </div>

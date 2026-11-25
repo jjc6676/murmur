@@ -55,6 +55,27 @@ export interface HistoryEntry {
   numWordsCorrected: number;
   latencyMs: number;
   error: string | null;
+  detectedLanguage?: string | null;
+  outputLanguage?: string | null;
+  localPipelineText?: string | null;
+  llmText?: string | null;
+  toneMatchedText?: string | null;
+  defaultAsrText?: string | null;
+  fallbackAsrText?: string | null;
+  defaultFormattedText?: string | null;
+  fallbackFormattedText?: string | null;
+  usedFallbackAsr?: boolean;
+  usedFallbackFormatting?: boolean;
+  appExe?: string | null;
+  appUrl?: string | null;
+  selectedText?: string | null;
+  pasteOutcome?: 'verified' | 'unverified' | 'blocked' | null;
+  pasteDelayed?: boolean;
+  instructProvider?: string | null;
+  instructVersion?: string | null;
+  instructLatencyMs?: number | null;
+  instructStatus?: string | null;
+  instructRoute?: string | null;
 }
 
 // ---------------------------------------------------------------- dictionary & snippets

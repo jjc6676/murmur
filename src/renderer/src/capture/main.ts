@@ -26,7 +26,21 @@ function toPcm16(f: Float32Array): { buf: ArrayBuffer; rms: number } {
 
 async function tapStream(stream: MediaStream, onChunk: (buf: ArrayBuffer, level: number) => void): Promise<Tap> {
   const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
-  await ctx.audioWorklet.addModule(workletUrl);
+  if (ctx.state === 'suspended') {
+    try {
+      await ctx.resume();
+    } catch {
+      stream.getTracks().forEach((track) => track.stop());
+      throw new Error('AudioContextRecovery');
+    }
+  }
+  try {
+    await ctx.audioWorklet.addModule(workletUrl);
+  } catch {
+    stream.getTracks().forEach((track) => track.stop());
+    void ctx.close();
+    throw new Error('AudioWorkletLoadError');
+  }
   const src = ctx.createMediaStreamSource(stream);
   const node = new AudioWorkletNode(ctx, 'pcm-tap', { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 1, channelCountMode: 'explicit' });
   let paused = false;
@@ -60,15 +74,33 @@ async function tapStream(stream: MediaStream, onChunk: (buf: ArrayBuffer, level:
   };
 }
 
+function micError(error: unknown): string {
+  if (error instanceof Error && /^(AudioWorkletLoadError|AudioContextRecovery)$/.test(error.message)) return error.message;
+  const name = error instanceof DOMException ? error.name : '';
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'MicNotFound';
+  if (name === 'NotReadableError') return 'MicNotReadable';
+  if (name === 'NotAllowedError' || name === 'SecurityError') return 'MicrophonePermissionRevoked';
+  if (name === 'AbortError' || name === 'TimeoutError') return 'MicAccessTimeout';
+  return `MicAccessError:${error instanceof Error ? error.message : String(error)}`;
+}
+
 async function openMic(deviceId: string): Promise<MediaStream> {
   const constraints: MediaTrackConstraints = { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true };
   if (deviceId && deviceId !== 'default') constraints.deviceId = { exact: deviceId };
+  const request = navigator.mediaDevices.getUserMedia({ audio: constraints });
+  const { promise: timeout, reject } = Promise.withResolvers<never>();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    reject(new DOMException('Timed out opening microphone', 'TimeoutError'));
+  }, 8000);
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio: constraints });
-  } catch (e) {
-    // selected device vanished -> fall back to system default
-    if (deviceId && deviceId !== 'default') return navigator.mediaDevices.getUserMedia({ audio: { ...constraints, deviceId: undefined } });
-    throw e;
+    return await Promise.race([request, timeout]);
+  } catch (error) {
+    if (timedOut) void request.then((stream) => stream.getTracks().forEach((track) => track.stop()), () => undefined);
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -88,10 +120,17 @@ async function startDictation(deviceId: string): Promise<void> {
   dictationStarting = (async () => {
     try {
       const stream = await openMic(deviceId);
+      let disconnected = false;
+      stream.getAudioTracks()[0]?.addEventListener('ended', () => {
+        if (!dictation || disconnected) return;
+        disconnected = true;
+        dictation = null;
+        void api.dictation.captureEnded('MicDisconnected');
+      });
       dictation = await tapStream(stream, (buf, level) => void api.dictation.pushAudio(buf, level));
     } catch (e) {
       dictation = null;
-      void api.dictation.captureEnded(e instanceof Error ? e.message : String(e));
+      void api.dictation.captureEnded(micError(e));
     } finally {
       dictationStarting = null;
     }
@@ -131,8 +170,16 @@ function startMeeting(deviceId: string): void {
       console.error('meeting mic failed', e);
     }
     try {
-      m.system = await tapStream(await system, push('system'));
+      const systemStream = await system;
+      systemStream.getAudioTracks()[0]?.addEventListener('ended', () => {
+        if (meeting !== m || !m.system) return;
+        m.system = null;
+        void api.recorder.systemAudioStatus(false, 'dropped');
+      });
+      m.system = await tapStream(systemStream, push('system'));
+      void api.recorder.systemAudioStatus(true);
     } catch (e) {
+      void api.recorder.systemAudioStatus(false, 'unavailable');
       console.error('meeting system audio failed', e);
     }
   })();

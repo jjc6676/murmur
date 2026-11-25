@@ -3,9 +3,10 @@
 import { categorizeApp } from '@shared/apps';
 import { comboLabelParts } from '@shared/hotkeys';
 import { getCtx } from './context';
+import { broadcast } from './ipc';
 import { getForegroundApp, minimizeWindow } from './native/win32';
 import { showNudge, showToast } from './toasts';
-import { isDictating } from './features/dictation';
+import { isDictating, refreshAppBlockedState } from './features/dictation';
 
 const BROWSERS = /^(chrome|msedge|firefox|brave|opera|arc|vivaldi|zen)$/;
 const TYPING_WINDOW_MS = 60_000;
@@ -22,6 +23,14 @@ function focusModeTick(): void {
   if (!blockedApp && !blockedSite) return;
   minimizeWindow(fg.hwnd);
   showToast({ key: 'FocusModeBlocked', title: "You're in a Flow state", body: `${blockedApp ? fg.processName : 'This site'} is blocked by Focus Mode.`, target: 'bar' });
+}
+
+function compatibilityTick(): void {
+  const fg = getForegroundApp();
+  if (/^(1password|onepassword)$/i.test(fg.processName))
+    showNudge('SecureInputBlockingShortcuts', { title: 'Secure Keyboard Entry can block shortcuts', body: 'If Murmur shortcuts stop working, restart 1Password or turn off Secure Keyboard Entry.', target: 'bar' }, { max: 1 });
+  if (/granola/i.test(fg.processName))
+    showNudge('FnConflictNotice', { title: 'Granola voice typing may conflict with Murmur', body: 'Turn off voice typing in Granola settings to use the same shortcut.', target: 'bar' }, { max: 1 });
 }
 
 let keyTimes: number[] = [];
@@ -58,6 +67,34 @@ function onKey(down: boolean): void {
 }
 
 export function startWatchers(): void {
-  setInterval(focusModeTick, 1000);
-  getCtx().hotkeys.on('key', (_id, down) => onKey(down));
+  setInterval(() => {
+    focusModeTick();
+    compatibilityTick();
+    refreshAppBlockedState();
+  }, 1000);
+  const { hotkeys, settings } = getCtx();
+  hotkeys.on('key', (_id, down) => onKey(down));
+  settings.onChange((next, previous) => {
+    if (previous.typingReminder.mode === 'disabled' && next.typingReminder.mode !== 'disabled') {
+      showToast({ key: 'TypingReminderEnabled', title: 'Typing reminders enabled', body: 'Murmur will remind you when dictation could save time.', target: 'bar', tone: 'success' });
+      showNudge('TypingReminderConfigure', { title: 'Choose where reminders appear', body: 'Adjust reminder apps and categories in Settings.', target: 'bar', actions: [{ id: 'settings', label: 'Configure' }] }, { max: 1 }, (action) => {
+        if (action !== 'settings') return;
+        settings.patch({ contextualNudge: { mode: 'categories' } });
+        broadcast('settings:open', { section: 'system' });
+      });
+    }
+  });
+  setTimeout(() => {
+    if (!settings.get().onboardingComplete) return;
+    const latest = getCtx().db.get<{ timestamp: string }>('SELECT timestamp FROM history ORDER BY timestamp DESC LIMIT 1');
+    if (!latest) {
+      if (!showNudge('RuxNudgeNeverActivated', { title: 'Ready to try Murmur?', body: 'Hold your shortcut and speak anywhere you can type.', target: 'bar' }, { max: 1 }))
+        showNudge('WelcomeBackNeverActivated', { title: 'Welcome back — try your first dictation', target: 'bar' }, { max: 1 });
+      return;
+    }
+    if (Date.now() - new Date(latest.timestamp).getTime() > 14 * 24 * 3600_000) {
+      if (!showNudge('RuxNudgeFallenChampion', { title: 'Your voice shortcut is ready', body: 'Welcome back — dictate your next message with Murmur.', target: 'bar' }, { max: 1 }))
+        showNudge('WelcomeBackFallenChampion', { title: 'Welcome back to Murmur', target: 'bar' }, { max: 1 });
+    }
+  }, 5000);
 }

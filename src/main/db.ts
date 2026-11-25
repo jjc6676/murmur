@@ -179,6 +179,33 @@ const MIGRATIONS: string[] = [
     modifiedAt TEXT NOT NULL
   );
   `,
+  ALTER TABLE history ADD COLUMN detectedLanguage TEXT;
+  ALTER TABLE history ADD COLUMN outputLanguage TEXT;
+  ALTER TABLE history ADD COLUMN localPipelineText TEXT;
+  ALTER TABLE history ADD COLUMN llmText TEXT;
+  ALTER TABLE history ADD COLUMN toneMatchedText TEXT;
+  ALTER TABLE history ADD COLUMN defaultAsrText TEXT;
+  ALTER TABLE history ADD COLUMN fallbackAsrText TEXT;
+  ALTER TABLE history ADD COLUMN defaultFormattedText TEXT;
+  ALTER TABLE history ADD COLUMN fallbackFormattedText TEXT;
+  ALTER TABLE history ADD COLUMN usedFallbackAsr INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE history ADD COLUMN usedFallbackFormatting INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE history ADD COLUMN appExe TEXT;
+  ALTER TABLE history ADD COLUMN appUrl TEXT;
+  ALTER TABLE history ADD COLUMN selectedText TEXT;
+  `,
+  `
+  `
+  ALTER TABLE history ADD COLUMN pasteOutcome TEXT;
+  ALTER TABLE history ADD COLUMN pasteDelayed INTEGER NOT NULL DEFAULT 0;
+  `,
+  `
+  ALTER TABLE history ADD COLUMN instructProvider TEXT;
+  ALTER TABLE history ADD COLUMN instructVersion TEXT;
+  ALTER TABLE history ADD COLUMN instructLatencyMs INTEGER;
+  ALTER TABLE history ADD COLUMN instructStatus TEXT;
+  ALTER TABLE history ADD COLUMN instructRoute TEXT;
+  `,
 ];
 
 export type Row = Record<string, SQLInputValue>;

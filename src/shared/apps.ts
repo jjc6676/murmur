@@ -35,6 +35,15 @@ export function styleContextFor(processName: string, title: string, styles: Reco
   return 'other';
 }
 
+/** Resolve a process-name override, accepting both bare names and .exe forms. */
+export function transcriptionFormatForApp(
+  processName: string,
+  overrides: { app: string; format: 'raw' | 'formatted' }[],
+): 'raw' | 'formatted' {
+  const normalized = processName.replace(/\.exe$/i, '').toLowerCase();
+  return overrides.find((item) => item.app.replace(/\.exe$/i, '').toLowerCase() === normalized)?.format ?? 'formatted';
+}
+
 /** Friendly display name for a process ("winword" -> "Word"). */
 export function appDisplayName(processName: string): string {
   const map: Record<string, string> = {

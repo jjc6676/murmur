@@ -8,6 +8,7 @@ import { broadcast, handle } from '../ipc';
 import { newId, nowIso } from '../db';
 import { getForegroundApp, type ForegroundApp } from '../native/win32';
 import { copySelection, pasteText, waitForModifiersReleased } from '../native/textio';
+import { readFocusedText } from '../native/uia';
 import { showNudge, showToast } from '../toasts';
 
 const MAX_WORDS = 3000;
@@ -91,6 +92,11 @@ export async function applyToSelection(transformId: string): Promise<TransformRu
   const t = transformById(transformId);
   const target = getForegroundApp();
   await waitForModifiersReleased((k) => hotkeys.isHeld(k));
+  const focused = await readFocusedText();
+  if (!focused.ok) {
+    showToast({ key: 'PolishTextboxDetectionFailed', title: "Couldn't detect text in your text box", body: 'Click into the text box and try again.', target: 'bar', tone: 'warning' });
+    return null;
+  }
   const selection = await copySelection();
   if (!selection.trim()) {
     if (!showNudge('PolishTextNoSelectionFirstTime', { title: 'Hey, select text first!', body: 'First, highlight the text you want to transform.', target: 'bar' }, { max: 1 }))
@@ -119,7 +125,9 @@ export async function applyToSelection(transformId: string): Promise<TransformRu
   }
   lastRun = { run, target };
   if (s.transformAutoPaste) {
-    await pasteText(run.outputText, { target });
+    const pasted = await pasteText(run.outputText, { target });
+    if (pasted.outcome !== 'verified' && pasted.before !== null && pasted.after !== null)
+      showToast({ key: 'PolishTextNotEditable', title: "Murmur can't paste right now. Text saved to clipboard.", target: 'bar' });
   } else {
     clipboard.writeText(run.outputText);
     showToast({ key: 'PolishTextNotEditable', title: "Murmur can't paste right now. Text saved to clipboard.", target: 'bar' });

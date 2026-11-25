@@ -1,6 +1,7 @@
 // Text insertion/extraction in the foreground app via the clipboard + synthetic keystrokes.
 import { clipboard, ClipboardItem } from 'electron';
-import { focusWindow, getForegroundApp, releaseModifiers, sendChord, VK, type ForegroundApp } from './win32';
+import { focusWindow, getForegroundApp, isWindowElevated, releaseModifiers, sendChord, VK, type ForegroundApp } from './win32';
+import { readFocusedText } from './uia';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -35,15 +36,29 @@ export interface PasteOptions {
   restoreClipboard?: boolean;
 }
 
-/** Insert text at the caret of the focused (or target) window. */
-export async function pasteText(text: string, opts: PasteOptions = {}): Promise<void> {
+export interface PasteResult {
+  outcome: 'verified' | 'unverified' | 'blocked';
+  delayed: boolean;
+  before: string | null;
+  after: string | null;
+}
+
+/** Insert text at the caret and verify the resulting field through UI Automation when supported. */
+export async function pasteText(text: string, opts: PasteOptions = {}): Promise<PasteResult> {
+  const target = opts.target ?? getForegroundApp();
+  if (isWindowElevated(target.hwnd)) {
+    await clipboard.writeText(text);
+    return { outcome: 'blocked', delayed: false, before: null, after: null };
+  }
+  const beforeRead = await readFocusedText(500);
+  const before = beforeRead.ok ? beforeRead.value : null;
   const prev = opts.restoreClipboard === false ? null : await snapshot();
   if (opts.html) await clipboard.write([new ClipboardItem({ 'text/plain': text, 'text/html': opts.html })]);
   else await clipboard.writeText(text);
-  if (opts.target?.hwnd) {
+  if (target.hwnd) {
     const fg = getForegroundApp();
-    if (fg.hwnd !== opts.target.hwnd) {
-      focusWindow(opts.target.hwnd);
+    if (fg.hwnd !== target.hwnd) {
+      focusWindow(target.hwnd);
       await sleep(60);
     }
   }
@@ -54,11 +69,25 @@ export async function pasteText(text: string, opts: PasteOptions = {}): Promise<
     await sleep(120);
     sendChord([], VK.RETURN);
   }
+  let afterRead = await readFocusedText(500);
+  let delayed = false;
+  if (afterRead.ok && !afterRead.value.includes(text) && !opts.pressEnter) {
+    await sleep(350);
+    afterRead = await readFocusedText(500);
+    delayed = true;
+  }
   if (prev) {
     // give the target app time to read the clipboard before restoring the user's contents
-    await sleep(450);
+    await sleep(100);
     if ((await clipboard.readText()) === text) await restore(prev);
   }
+  const after = afterRead.ok ? afterRead.value : null;
+  return {
+    outcome: after === null ? 'unverified' : after.includes(text) || after !== before ? 'verified' : 'unverified',
+    delayed,
+    before,
+    after,
+  };
 }
 
 /** Copy the current selection in the foreground app; returns '' when nothing is selected. */

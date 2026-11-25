@@ -1,5 +1,5 @@
 // Dictation controller: hotkeys -> capture -> whisper -> formatting -> paste -> history.
-import { clipboard } from 'electron';
+import { app, clipboard, shell } from 'electron';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DictationMode, DictationState, HistoryEntry, HistoryStatus } from '@shared/types';
@@ -12,7 +12,7 @@ import { runTransformText } from './transforms';
 import { duckMedia, unduckMedia } from './mediaDuck';
 import { paths } from '../paths';
 import { getForegroundApp, type ForegroundApp } from '../native/win32';
-import { copySelection, pasteText, waitForModifiersReleased } from '../native/textio';
+import { copySelection, pasteText, waitForModifiersReleased, type PasteResult } from '../native/textio';
 import { pcm16ToWav, speechSeconds, wavToPcm16 } from '../audio/wav';
 import { asrPrompt, contextPrompt, formatForApp, markPhrasesUsed } from './formatting';
 import { readFocusedText } from '../native/uia';
@@ -20,6 +20,7 @@ import { scheduleEditLearning } from './learning';
 import { getHistoryRow, rowToHistory } from './history';
 import { showNudge, showToast } from '../toasts';
 import { ensureCapture } from '../windows';
+import { microphonePrivacyAllowed, windowsRegion } from '../native/permissions';
 
 const MAX_SECONDS = 20 * 60;
 const TAP_MS = 250;
@@ -36,14 +37,15 @@ interface Session {
   ended: PromiseWithResolvers<string | null>;
   warnTimer: NodeJS.Timeout;
   maxTimer: NodeJS.Timeout;
-  /** Focused-field text at start (context awareness); '' when disabled/unavailable. */
-  context: Promise<string>;
+  /** Focused-field context at start; empty when disabled or unavailable. */
+  context: Promise<{ text: string; selected: string; url: string | null }>;
 }
 
 let state: DictationState = { phase: 'resting', mode: null, startedAt: null, level: 0, message: null, lastEntryId: null, polishName: null };
 let session: Session | null = null;
 let lastTapAt = 0;
 let processingQueue: Promise<unknown> = Promise.resolve();
+let lastPaste: { id: string; at: number } | null = null;
 let lastLevelAt = 0;
 // Sessions cancelled while capture is still flushing; resolved on the next captureEnded.
 const pendingCancelled = new Set<Session>();
@@ -70,11 +72,36 @@ export function isDictating(): boolean {
   return session !== null;
 }
 
+export function refreshAppBlockedState(): void {
+  if (session || state.phase !== 'resting') return;
+  const target = getForegroundApp();
+  const blocked = getCtx().settings.get().disabledApps.some((name) => name.toLowerCase() === target.processName);
+  const message = blocked ? 'Voice-to-text disabled' : null;
+  if (state.message !== message) setState({ message });
+}
+
 export function startDictation(mode: DictationMode): void {
   if (session) return;
-  const { settings } = getCtx();
+  if (state.phase === 'processing' || state.phase === 'polish_processing') {
+    showToast({ key: 'TranscriptCurrentlyProcessing', title: 'Your previous transcript is still processing', body: 'Wait a moment, then press your shortcut again.', target: 'bar', tone: 'warning' });
+    return;
+  }
+  const { settings, asr } = getCtx();
   const s = settings.get();
   const target = getForegroundApp();
+  if (s.disabledApps.some((app) => app.toLowerCase() === target.processName)) {
+    setState({ phase: 'resting', message: 'Voice-to-text disabled' });
+    showToast({ key: 'AppDictationBlocked', title: 'Voice-to-text disabled', body: `Voice-to-text is disabled in ${target.processName || 'this app'}.`, target: 'bar' });
+    return;
+  }
+  if (!asr.modelName) showToast({ key: 'HelperNotReady', title: 'Just a moment — Murmur is getting ready…', target: 'bar' });
+  void microphonePrivacyAllowed().then((allowed) => {
+    if (allowed !== false) return;
+    showToast(
+      { key: 'WindowsMicPrivacyDisabled', title: 'Windows microphone access is off', body: 'Allow desktop apps to access your microphone in Windows Settings.', target: 'bar', tone: 'error', actions: [{ id: 'settings', label: 'Open Sound Settings' }] },
+      (action) => action === 'settings' && void shell.openExternal('ms-settings:privacy-microphone'),
+    );
+  });
   const ended = Promise.withResolvers<string | null>();
   session = {
     id: newId(),
@@ -85,7 +112,9 @@ export function startDictation(mode: DictationMode): void {
     stopping: false,
     cancelled: false,
     ended,
-    context: s.contextAwareness ? readFocusedText().then((r) => (r.ok ? r.value : '')) : Promise.resolve(''),
+    context: s.contextAwareness || s.internal.shouldSaveAxText
+      ? readFocusedText(1500, true).then((r) => ({ text: r.ok ? r.value : '', selected: r.selected, url: r.url }))
+      : Promise.resolve({ text: '', selected: '', url: null }),
     warnTimer: setTimeout(() => showToast({ key: 'DictationDurationWarning', title: 'Less than a minute left', body: 'Murmur supports up to 20 minutes per session.', target: 'bar', tone: 'warning' }), (MAX_SECONDS - 60) * 1000),
     maxTimer: setTimeout(() => {
       showToast({ key: 'DictationMaxDurationReached', title: 'Murmur supports up to 20 minutes per session', body: 'Your text is being inserted now.', target: 'bar', tone: 'warning' });
@@ -112,6 +141,14 @@ export function stopDictation(): void {
   ensureCapture().webContents.send('evt:capture:command', { kind: 'dictation', action: 'stop', deviceId: '' });
   unduckMedia();
   playSound('stop');
+  if (heldMs > 3 * 60_000) {
+    showNudge(
+      'LongDictationNotetakerPrompt',
+      { title: 'That was a long one!', body: 'Were you recording something? Notetaker can create a transcript and notes automatically.', target: 'bar', actions: [{ id: 'notetaker', label: 'Open Notetaker' }] },
+      { minIntervalMs: 7 * 24 * 3600_000 },
+      (action) => action === 'notetaker' && broadcast('hub:navigate', { route: '/notetaker' }),
+    );
+  }
   if (cur.mode === 'ptt' && heldMs < TAP_MS) {
     cur.cancelled = true;
     session = null;
@@ -134,6 +171,14 @@ export function stopDictation(): void {
   processingQueue = processingQueue.then(() => job);
 }
 
+/** Cancel a PTT start when another physical key arrives during its first 300 ms. */
+export function cancelDictationForOtherShortcut(): void {
+  const cur = session;
+  if (!cur || cur.mode !== 'ptt' || Date.now() - cur.startedAt > 300) return;
+  cancelDictation();
+  showToast({ key: 'DictationCancelledOtherShortcut', title: `Hold only ${shortcutLabel('ptt')} to dictate.`, target: 'bar', tone: 'warning' });
+}
+
 export function cancelDictation(): void {
   const cur = session;
   if (!cur) return;
@@ -145,12 +190,26 @@ export function cancelDictation(): void {
   pendingCancelled.add(cur);
   unduckMedia();
   setState({ phase: 'resting', mode: null, startedAt: null, level: 0 });
-  void cur.ended.promise.then(() => {
+  void cur.ended.promise.then(async () => {
     const pcm = Buffer.concat(cur.chunks);
-    const entry = saveHistory(cur, { status: 'cancelled', asrText: '', formattedText: '', pcm, language: 'en', latencyMs: 0 });
+    const context = await cur.context;
+    const entry = saveHistory(cur, { status: 'cancelled', asrText: '', formattedText: '', pcm, language: 'en', latencyMs: 0, extra: { accessibilityContext: getCtx().settings.get().internal.shouldSaveAxText ? context.text : null, selectedText: context.selected || null, appUrl: context.url } });
     showToast({ key: 'TranscriptCancelled', title: 'Transcript cancelled', target: 'bar', actions: [{ id: 'undo', label: 'Undo' }], durationMs: 6000 }, (action) => {
       if (action === 'undo') void retryHistory(entry.id, true);
     });
+  });
+}
+
+function databaseError(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  const storage = /(disk|database).*(full)|SQLITE_FULL/i.test(message);
+  const corrupt = /corrupt|malformed|SQLITE_CORRUPT/i.test(message);
+  showToast({
+    key: storage ? 'DatabaseStorageFull' : corrupt ? 'DatabaseCorruptionError' : 'DatabaseGenericError',
+    title: storage ? 'Your computer is running out of space' : corrupt ? 'Your local Murmur data may be corrupt' : 'Murmur could not save this dictation',
+    body: message,
+    target: 'bar',
+    tone: 'error',
   });
 }
 
@@ -161,9 +220,14 @@ function saveHistory(
   const { db, settings } = getCtx();
   const st = settings.get();
   let audioPath: string | null = null;
-  if (st.storeAudio && st.localDataStorage !== 'never_store' && r.pcm.length > 0) {
-    audioPath = join(paths.audioDir, `${s.id}.wav`);
-    writeFileSync(audioPath, pcm16ToWav(r.pcm));
+  try {
+    if (st.storeAudio && st.localDataStorage !== 'never_store' && r.pcm.length > 0) {
+      audioPath = join(paths.audioDir, `${s.id}.wav`);
+      writeFileSync(audioPath, pcm16ToWav(r.pcm));
+    }
+  } catch (error) {
+    audioPath = null;
+    databaseError(error);
   }
   const row = {
     id: s.id,
@@ -189,11 +253,34 @@ function saveHistory(
     numWordsCorrected: r.extra?.numWordsCorrected ?? 0,
     latencyMs: Math.round(r.latencyMs),
     error: r.error ?? null,
+    feedback: null,
+    accessibilityContext: r.extra?.accessibilityContext ?? null,
+    detectedLanguage: r.extra?.detectedLanguage ?? r.language,
+    outputLanguage: r.extra?.outputLanguage ?? r.language,
+    localPipelineText: r.extra?.localPipelineText ?? null,
+    llmText: r.extra?.llmText ?? null,
+    toneMatchedText: r.extra?.toneMatchedText ?? null,
+    defaultAsrText: r.extra?.defaultAsrText ?? r.asrText,
+    fallbackAsrText: r.extra?.fallbackAsrText ?? null,
+    defaultFormattedText: r.extra?.defaultFormattedText ?? r.formattedText,
+    fallbackFormattedText: r.extra?.fallbackFormattedText ?? null,
+    appExe: s.target.exe,
+    appUrl: r.extra?.appUrl ?? null,
+    selectedText: r.extra?.selectedText ?? null,
+    instructProvider: r.extra?.instructProvider ?? null,
+    instructVersion: r.extra?.instructVersion ?? null,
+    instructLatencyMs: r.extra?.instructLatencyMs ?? null,
+    instructStatus: r.extra?.instructStatus ?? null,
+    instructRoute: r.extra?.instructRoute ?? null,
   };
   if (st.localDataStorage !== 'never_store') {
-    db.run('DELETE FROM history WHERE id = ?', s.id);
-    db.insert('history', row);
-    broadcast('history:changed', { id: s.id });
+    try {
+      db.run('DELETE FROM history WHERE id = ?', s.id);
+      db.insert('history', row);
+      broadcast('history:changed', { id: s.id });
+    } catch (error) {
+      databaseError(error);
+    }
   }
   return rowToHistory(row);
 }
@@ -208,56 +295,126 @@ async function transcribe(pcm: Buffer, extraPrompt = ''): Promise<{ text: string
   return { text: r.text, language: r.language };
 }
 
+function showMicrophoneFailure(key: string, detail?: string): void {
+  const catalog: Record<string, { title: string; body: string; action: string }> = {
+    MicNotFound: { title: 'No microphone found', body: 'Connect a microphone and try again.', action: 'Open Sound Settings' },
+    MicNotReadable: { title: 'Your microphone is not readable', body: 'Another app or audio driver may be using it.', action: 'Open Sound Settings' },
+    MicrophonePermissionRevoked: { title: 'Microphone permission is required', body: 'Allow Murmur to use your microphone in Windows Settings.', action: 'Open Sound Settings' },
+    MicAccessTimeout: { title: 'Unable to access mic', body: 'Restart Murmur and try again.', action: 'Restart App' },
+    AudioWorkletLoadError: { title: 'Murmur’s audio system failed to load', body: 'Restart Murmur and try again.', action: 'Restart App' },
+    AudioContextRecovery: { title: 'Murmur is getting audio ready', body: 'Please retry in a moment.', action: 'Open Sound Settings' },
+  };
+  const item = catalog[key] ?? { title: 'Microphone could not start', body: detail ?? key, action: 'Open Sound Settings' };
+  showToast(
+    { key, title: item.title, body: detail && !catalog[key] ? detail : item.body, tone: 'error', target: 'bar', actions: [{ id: 'settings', label: item.action }] },
+    (action) => {
+      if (action !== 'settings') return;
+      if (item.action === 'Restart App') {
+        app.relaunch();
+        app.exit(0);
+      } else {
+        void shell.openExternal('ms-settings:sound');
+      }
+    },
+  );
+}
+
+function languageNudges(detected: string, output: string): void {
+  const { settings, db } = getCtx();
+  const s = settings.get();
+  if (s.autoDetectLanguage) {
+    showNudge('LanguageNotification', { title: 'We auto-detected your language', body: `Output language: ${output}. You can change this in Settings.`, target: 'bar', actions: [{ id: 'settings', label: 'Open Settings' }] }, { max: 2 }, (action) => action === 'settings' && broadcast('settings:open', { section: 'general' }));
+  } else if (detected && detected !== output && !detected.startsWith(output)) {
+    showNudge('WrongLanguageSetting', { title: `Dictating in ${detected}?`, body: 'Add the language you speak for more accurate transcription.', target: 'bar', actions: [{ id: 'settings', label: 'Open language settings' }, { id: 'dismiss', label: "Don't show again" }] }, { max: 3 }, (action) => action === 'settings' && broadcast('settings:open', { section: 'general' }));
+  }
+  if (detected && !s.languages.includes(detected)) {
+    const uses = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM history WHERE detectedLanguage = ?', detected)?.n ?? 0;
+    if (uses >= 2) {
+      settings.patch({ languages: [...s.languages, detected] });
+      const hinglish = detected.startsWith('hi') && s.hinglishEnabled;
+      showToast(
+        { key: hinglish ? 'LanguageAutoAddedHinglish' : 'LanguageAutoAdded', title: hinglish ? 'Added Hinglish' : `Added ${detected} to your languages`, body: hinglish ? 'Hindi speech will be written in Latin letters, for example “aap kaise ho”.' : undefined, target: 'bar', actions: [{ id: 'undo', label: 'Undo' }, ...(hinglish ? [{ id: 'script', label: 'Use Hindi script' }] : [])] },
+        (action) => {
+          if (action === 'undo') settings.patch({ languages: settings.get().languages.filter((code) => code !== detected) });
+          if (action === 'script') settings.patch({ hinglishEnabled: false });
+        },
+      );
+    }
+  }
+  if (windowsRegion() === 'CA' && output.startsWith('en')) {
+    showNudge('CanadianEnglishNudge', { title: 'Use Canadian English?', body: 'Add Canadian spelling and phrasing for English dictation.', target: 'bar', actions: [{ id: 'add', label: 'Add Canadian English' }] }, { max: 1 }, (action) => action === 'add' && settings.patch({ languages: [...new Set([...settings.get().languages, 'en-CA'])] }));
+  }
+}
+
 async function processSession(s: Session): Promise<void> {
   const err = await s.ended.promise;
   session = null;
   const t0 = Date.now();
   const pcm = Buffer.concat(s.chunks);
-  if (err) {
-    saveHistory(s, { status: 'failed', asrText: '', formattedText: '', pcm, language: 'en', latencyMs: 0, error: err });
-    showToast({ key: 'MicAccessError', title: 'Microphone could not start', body: err, tone: 'error', target: 'bar' });
+  const context = await s.context;
+  const accessibilityContext = getCtx().settings.get().internal.shouldSaveAxText ? context.text : null;
+  const activeContext = { accessibilityContext, selectedText: context.selected || null, appUrl: context.url };
+  if (err && err !== 'MicDisconnected') {
+    saveHistory(s, { status: 'failed', asrText: '', formattedText: '', pcm, language: 'en', latencyMs: 0, error: err, extra: activeContext });
+    showMicrophoneFailure(err.split(':')[0], err.includes(':') ? err.slice(err.indexOf(':') + 1) : undefined);
     setState({ phase: 'resting', mode: null, startedAt: null });
     return;
+  }
+  if (err === 'MicDisconnected') {
+    showToast({ key: 'MicDisconnected', title: 'Microphone disconnected', body: 'Murmur will insert what was captured before the disconnect.', target: 'bar', tone: 'warning' });
   }
   if (speechSeconds(pcm) < 0.15) {
-    saveHistory(s, { status: 'empty', asrText: '', formattedText: '', pcm, language: 'en', latencyMs: 0 });
-    showToast({ key: 'TranscriptionEmpty', title: "We couldn't hear you", body: 'Check that the right microphone is selected.', tone: 'warning', target: 'bar', actions: [{ id: 'mic', label: 'Select microphone' }] }, (a) => {
-      if (a === 'mic') broadcast('settings:open', { section: 'general' });
-    });
+    saveHistory(s, { status: 'empty', asrText: '', formattedText: '', pcm, language: 'en', latencyMs: 0, extra: activeContext });
+    const count = getCtx().db.kvGet<number>('noAudioCount', 0) + 1;
+    getCtx().db.kvSet('noAudioCount', count);
+    showToast(
+      {
+        key: count >= 3 ? 'NoAudioDuringDictationEscalated' : 'NoAudio',
+        title: count >= 3 ? 'Microphone is not working' : 'Is your microphone muted?',
+        body: count >= 3 ? 'No audio was received after several attempts.' : 'No audio was received from the selected microphone.',
+        tone: 'warning',
+        target: 'bar',
+        actions: [{ id: 'mic', label: 'Select microphone' }],
+      },
+      (action) => action === 'mic' && broadcast('settings:open', { section: 'general' }),
+    );
     setState({ phase: 'resting', mode: null, startedAt: null });
     return;
   }
+  getCtx().db.kvSet('noAudioCount', 0);
   const delayTimer = setTimeout(() => {
     if (getCtx().settings.get().notifications.processingDelay)
       showToast({ key: 'ProcessingDelayNotification', title: 'Taking longer than usual…', body: 'Your audio is saved for retrying.', target: 'bar' });
   }, 12_000);
   try {
     let asrText: string;
-    let language: string;
+    let detectedLanguage: string;
     try {
-      const ctxText = await s.context;
-      ({ text: asrText, language } = await transcribe(pcm, contextPrompt({ processName: s.target.processName, title: s.target.title }, ctxText)));
+      ({ text: asrText, language: detectedLanguage } = await transcribe(pcm, contextPrompt({ processName: s.target.processName, title: s.target.title }, context.text)));
     } catch (e) {
-      const entry = saveHistory(s, { status: 'failed', asrText: '', formattedText: '', pcm, language: 'en', latencyMs: Date.now() - t0, error: e instanceof Error ? e.message : String(e) });
+      const entry = saveHistory(s, { status: 'failed', asrText: '', formattedText: '', pcm, language: 'en', latencyMs: Date.now() - t0, error: e instanceof Error ? e.message : String(e), extra: activeContext });
       showToast({ key: 'TranscriptionError', title: "Something's not right", body: 'Transcription failed. Your audio is saved.', tone: 'error', target: 'bar', actions: [{ id: 'retry', label: 'Retry' }] }, (a) => {
         if (a === 'retry') void retryHistory(entry.id, true);
       });
       setState({ phase: 'resting', mode: null, startedAt: null });
       return;
     }
+    const settings = getCtx().settings.get();
+    const outputLanguage = settings.autoDetectLanguage
+      ? detectedLanguage.startsWith('hi') && settings.hinglishEnabled ? 'hi-Latn' : detectedLanguage
+      : (settings.languages[0] ?? detectedLanguage);
     if (!asrText.trim()) {
-      saveHistory(s, { status: 'empty', asrText: '', formattedText: '', pcm, language, latencyMs: Date.now() - t0 });
+      saveHistory(s, { status: 'empty', asrText: '', formattedText: '', pcm, language: outputLanguage, latencyMs: Date.now() - t0, extra: { ...activeContext, detectedLanguage, outputLanguage } });
       showToast({ key: 'TranscriptionEmpty', title: "We couldn't hear you", body: 'No words were detected.', tone: 'warning', target: 'bar' });
       setState({ phase: 'resting', mode: null, startedAt: null });
       return;
     }
-    if (s.mode === 'command' || s.mode === 'lens' || s.mode === 'instruct') await deliverCommand(s, asrText, language, pcm, t0);
-    else await deliver(s, asrText, language, pcm, t0);
+    if (s.mode === 'command' || s.mode === 'lens' || s.mode === 'instruct') await deliverCommand(s, asrText, outputLanguage, pcm, t0);
+    else await deliver(s, asrText, outputLanguage, pcm, t0, detectedLanguage);
   } finally {
     clearTimeout(delayTimer);
   }
 }
-
 /**
  * Command / Lens / Instruct: the spoken words are an instruction. With text selected it rewrites the selection;
  * without a selection it drafts new text from the instruction (and window title as context).
@@ -273,6 +430,7 @@ async function deliverCommand(s: Session, instruction: string, language: string,
     return;
   }
   showNudge('FirstTimeUsingCommandMode', { title: 'Using Command Mode (beta)', target: 'bar' }, { max: 1 });
+  showNudge('UseHeyFlowForCommandMode', { title: 'No need to say “Hey Murmur” anymore', body: 'Use your Command Mode shortcut and speak the instruction directly.', target: 'bar' }, { max: 1 });
   setState({ phase: 'polish_processing', polishName: 'Command' });
   await waitForModifiersReleased((k) => hotkeys.isHeld(k));
   const selection = await copySelection();
@@ -288,10 +446,26 @@ async function deliverCommand(s: Session, instruction: string, language: string,
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
-  const entry = saveHistory(s, { status: error ? 'failed' : 'success', asrText: instruction, formattedText: output, pcm, language, latencyMs: Date.now() - t0, error });
+  const llmSettings = settings.get().llm;
+  const entry = saveHistory(s, {
+    status: error ? 'failed' : 'success',
+    asrText: instruction,
+    formattedText: output,
+    pcm,
+    language,
+    latencyMs: Date.now() - t0,
+    error,
+    extra: {
+      instructProvider: llmSettings.provider,
+      instructVersion: llmSettings.provider === 'claude' ? llmSettings.claudeModel : llmSettings.codexModel,
+      instructLatencyMs: Date.now() - t0,
+      instructStatus: error ? 'failed' : output.trim() ? 'success' : 'empty',
+      instructRoute: selection ? 'rewrite_selection' : 'draft_at_cursor',
+    },
+  });
   setState({ lastEntryId: entry.id });
   if (error || !output.trim()) {
-    showToast({ key: 'CommandModeServersAreBusy', title: 'Command failed', body: error ?? 'The AI returned no text.', tone: 'error', target: 'bar' });
+    showToast({ key: 'CommandModeServersAreBusy', title: 'Command Mode is busy', body: error ?? 'The local AI helper is experiencing high demand. Try again.', tone: 'error', target: 'bar' });
     setState({ phase: 'resting', mode: null, startedAt: null, polishName: null });
     return;
   }
@@ -314,11 +488,12 @@ function splitMessages(text: string): string[] {
   return out;
 }
 
-async function deliver(s: Session, asrText: string, language: string, pcm: Buffer, t0: number): Promise<HistoryEntry> {
+async function deliver(s: Session, asrText: string, language: string, pcm: Buffer, t0: number, detectedLanguage = language): Promise<HistoryEntry> {
   const { settings } = getCtx();
   const st = settings.get();
   const app = { processName: s.target.processName, title: s.target.title };
-  const contextText = await s.context;
+  const context = await s.context;
+  const contextText = context.text;
   const formatted = await formatForApp(asrText, app, { contextText });
   let finalText = formatted.text;
   // Auto Apply After Dictation: run the selected transform before pasting.
@@ -352,6 +527,16 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
       styleContext: formatted.styleContext,
       numDictionaryReplacements: formatted.numDictionaryReplacements,
       numWordsCorrected: formatted.numWordsCorrected,
+      detectedLanguage,
+      outputLanguage: language,
+      accessibilityContext: st.internal.shouldSaveAxText ? contextText : null,
+      localPipelineText: formatted.localPipelineText,
+      llmText: formatted.llmText,
+      toneMatchedText: formatted.toneMatchedText,
+      defaultAsrText: asrText,
+      defaultFormattedText: formatted.localPipelineText,
+      selectedText: context.selected || null,
+      appUrl: context.url,
     },
   });
   setState({ lastEntryId: entry.id });
@@ -362,14 +547,29 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
   } else {
     await waitForModifiersReleased((k) => getCtx().hotkeys.isHeld(k));
     const stacked = st.stackedMessages && (formatted.styleContext === 'work' || formatted.styleContext === 'personal') ? splitMessages(finalText) : [finalText];
+    let pasteOutcome: PasteResult | null = null;
     for (let i = 0; i < stacked.length; i++) {
       // stacked messages: send every chunk but the last as its own message
       const last = i === stacked.length - 1;
-      await pasteText(stacked[i], { target: s.target, pressEnter: last ? formatted.pressEnter : true });
+      pasteOutcome = await pasteText(stacked[i], { target: s.target, pressEnter: last ? formatted.pressEnter : true });
     }
-    playSound('paste');
+    if (pasteOutcome) getCtx().db.run('UPDATE history SET pasteOutcome = ?, pasteDelayed = ? WHERE id = ?', pasteOutcome.outcome, pasteOutcome.delayed ? 1 : 0, entry.id);
+    if (pasteOutcome?.outcome === 'blocked') {
+      getCtx().db.run('UPDATE history SET pastedText = NULL WHERE id = ?', entry.id);
+      showToast(
+        { key: 'PasteBlocked', title: 'Update admin settings to paste!', body: 'The target app is running as administrator. Your text was copied instead.', target: 'bar', tone: 'warning', actions: [{ id: 'settings', label: 'Open Settings' }] },
+        (action) => action === 'settings' && void shell.openExternal('ms-settings:developers'),
+      );
+    } else if (pasteOutcome?.outcome === 'unverified' && pasteOutcome.before !== null && pasteOutcome.after !== null) {
+      getCtx().db.run('UPDATE history SET pastedText = NULL WHERE id = ?', entry.id);
+      showToast({ key: st.postOnboardingCompleted ? 'PasteFailed' : 'PostOnboardingFailedPaste', title: 'Click a textbox, then dictate', body: 'Your text is saved in History.', target: 'bar', tone: 'warning' });
+    } else {
+      playSound('paste');
+      lastPaste = { id: entry.id, at: Date.now() };
+    }
     if (st.autoAddToDictionary) scheduleEditLearning(entry.id, stacked.join('\n'), s.target);
     if (isOwnWindow) showNudge('PostOnboardingInAppDictation', { title: 'Try using Murmur in another app!', body: 'Murmur works anywhere you type.', target: 'bar' }, { max: 3 });
+    languageNudges(detectedLanguage, language);
   }
   if (formatted.llmError) {
     showToast({ key: 'RawTranscript', title: 'Formatting may be missing', body: formatted.llmError.slice(0, 140), tone: 'warning', target: 'bar' });
@@ -378,6 +578,50 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
     setState({ message: label });
   } else if (formatted.numWordsCorrected > 0) {
     setState({ message: 'Cleaned up!' });
+  }
+  for (const feature of formatted.appliedFeatures) {
+    const key = feature === 'list' ? 'SmartFormattingList' : feature === 'backtrack' ? 'SmartFormattingBacktrack' : feature === 'file_tagging' ? 'SmartFormattingFileTagging' : 'SmartFormattingEmails';
+    const title = feature === 'list' ? 'Murmur automatically formats spoken lists' : feature === 'backtrack' ? 'Murmur caught your correction' : feature === 'file_tagging' ? 'Speak a file name and Murmur automatically tags it' : 'Murmur formatted your email';
+    if (!showNudge(key, { title, target: 'bar' }, { max: 1 }))
+      showNudge(`${key}Reminder`, { title, target: 'bar' }, { max: 2, minIntervalMs: 7 * 24 * 3600_000 });
+  }
+  if (formatted.numDictionaryReplacements > 0) {
+    if (!showNudge('FeatureNotifDictionary', { title: 'Murmur used your Dictionary', body: 'Add names and specialized words for more accurate dictation.', target: 'bar' }, { max: 1 }))
+      showNudge('FeatureNotifDictionaryReminder', { title: 'Your Dictionary corrected this dictation', target: 'bar' }, { max: 2 });
+  }
+  if (formatted.numSnippetExpansions > 0) {
+    if (!showNudge('FeatureNotifSnippets', { title: 'Snippets save reusable text', target: 'bar' }, { max: 1 }))
+      showNudge('SnippetsReminder', { title: 'A snippet expanded automatically', target: 'bar' }, { max: 2 });
+  }
+  let educationShown = showNudge('MoveableFlowBarLaunchModal', { title: 'Move your Flow Bar', body: 'Choose bottom, left, or right placement in Settings.', target: 'bar', actions: [{ id: 'settings', label: 'Open Settings' }] }, { max: 1 }, (action) => action === 'settings' && broadcast('settings:open', { section: 'general' }));
+  if (!educationShown && s.mode === 'ptt')
+    educationShown = showNudge('SuggestPOPO', { title: 'Try hands-free dictation', body: `Double-tap ${shortcutLabel('ptt')} to start, then press it again to finish.`, target: 'bar' }, { max: 1 });
+  if (!educationShown && formatted.pressEnter)
+    educationShown = showNudge('PressEnterCommandPrompt', { title: 'Say “press enter” to submit', body: 'Murmur can paste and send your message in one step.', target: 'bar' }, { max: 1 });
+  if (!educationShown && formatted.styleContext !== 'other') {
+    educationShown = showNudge('FeatureNotifStyles', { title: 'Murmur matched this app’s style', body: 'Customize tone and instructions on the Style page.', target: 'bar' }, { max: 1 });
+    if (!educationShown) educationShown = showNudge('StylesReminder', { title: 'Your app style was applied', target: 'bar' }, { max: 2, minIntervalMs: 7 * 24 * 3600_000 });
+  }
+  if (!educationShown && st.emailSignature.enabled && formatted.styleContext === 'email')
+    educationShown = showNudge('EmailSignature', { title: 'Your Murmur email signature was added', target: 'bar' }, { max: 1 });
+  if (!educationShown && detectedLanguage !== language)
+    educationShown = showNudge('FeatureTranslate', { title: 'Murmur can keep reusable translated text', body: 'Your detected and output languages are saved separately in History.', target: 'bar' }, { max: 1 });
+  if (!educationShown && st.muteAudioWhileDictating)
+    educationShown = showNudge('DisableMuteMusic', { title: 'Keep music playing while you dictate', body: 'Turn off “Mute audio while dictating” in Settings.', target: 'bar', actions: [{ id: 'settings', label: 'Open Settings' }] }, { max: 1 }, (action) => action === 'settings' && broadcast('settings:open', { section: 'general' }));
+  if (!educationShown)
+    showNudge('PolishActivationNudge', { title: 'Want to Transform this?', body: 'Highlight text and press your Transform shortcut.', target: 'bar' }, { max: 1, minIntervalMs: 24 * 3600_000 });
+  const captureSeconds = pcm.length / 32000;
+  if (captureSeconds > 2 && speechSeconds(pcm) / captureSeconds < 0.2) {
+    showNudge(
+      'AudioQualityIssue',
+      { title: "We didn't hear you clearly", body: 'Background noise or microphone distance may reduce accuracy.', target: 'bar', tone: 'warning', actions: [{ id: 'play', label: 'Play audio' }, { id: 'mic', label: 'Change microphone' }, { id: 'dismiss', label: "Don't show again" }] },
+      { max: 2 },
+      (action) => {
+        if (action === 'play') broadcast('hub:navigate', { route: '/history' });
+        if (action === 'mic') broadcast('settings:open', { section: 'general' });
+        if (action === 'dismiss') settings.set('nudges', { ...settings.get().nudges, AudioQualityIssue: { lastShown: Date.now(), count: Number.MAX_SAFE_INTEGER } });
+      },
+    );
   }
   setState({ phase: 'completed', mode: null, startedAt: null, polishName: null });
   setTimeout(() => {
@@ -405,7 +649,7 @@ export async function retryHistory(id: string, paste: boolean): Promise<HistoryE
     ended: Promise.withResolvers<string | null>(),
     warnTimer: setTimeout(() => {}, 0),
     maxTimer: setTimeout(() => {}, 0),
-    context: Promise.resolve(''),
+    context: Promise.resolve({ text: '', selected: '', url: null }),
   };
   if (!text.trim()) return saveHistory(s, { status: 'empty', asrText: '', formattedText: '', pcm, language, latencyMs: Date.now() - t0 });
   if (paste) return deliver(s, text, language, pcm, t0);
@@ -422,11 +666,21 @@ export async function retryHistory(id: string, paste: boolean): Promise<HistoryE
 }
 
 function lastTranscript(): string | null {
-  const r = getCtx().db.get<{ formattedText: string; asrText: string; hasRevertedAI: number }>(
-    "SELECT formattedText, asrText, hasRevertedAI FROM history WHERE status IN ('success','raw') ORDER BY timestamp DESC LIMIT 1",
+  const r = getCtx().db.get<{ formattedText: string; asrText: string; localPipelineText: string | null; hasRevertedAI: number }>(
+    "SELECT formattedText, asrText, localPipelineText, hasRevertedAI FROM history WHERE status IN ('success','raw') ORDER BY timestamp DESC LIMIT 1",
   );
   if (!r) return null;
-  return r.hasRevertedAI ? r.asrText : r.formattedText;
+  return r.hasRevertedAI ? r.localPipelineText || r.asrText : r.formattedText;
+}
+
+/** Record that the user's immediate Ctrl+Z reverted Murmur's most recent insertion. */
+export function handleUndoShortcut(): void {
+  if (!lastPaste || Date.now() - lastPaste.at > 10_000) return;
+  const { id } = lastPaste;
+  lastPaste = null;
+  getCtx().db.run('UPDATE history SET hasRevertedAI = 1, pastedText = NULL WHERE id = ?', id);
+  broadcast('history:changed', { id });
+  showToast({ key: 'TranscriptCancelledDetailed', title: 'Last dictation undone', body: 'You can restore it from History.', target: 'bar', actions: [{ id: 'history', label: 'Open History' }] }, (action) => action === 'history' && broadcast('hub:navigate', { route: '/history' }));
 }
 
 export async function pasteLast(): Promise<void> {
@@ -474,6 +728,9 @@ export function registerDictation(): void {
     },
     hideBarFor(ms) {
       getCtx().settings.patch({ flowBarHiddenUntil: Date.now() + ms });
+      showToast({ key: 'BarHidden', title: 'Flow Bar hidden for 1 hour', target: 'bar', actions: [{ id: 'undo', label: 'Undo' }] }, (action) => {
+        if (action === 'undo') getCtx().settings.patch({ flowBarHiddenUntil: 0 });
+      });
     },
   });
 }

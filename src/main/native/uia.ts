@@ -9,7 +9,7 @@ Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 while ($true) {
   $line = [Console]::In.ReadLine()
   if ($null -eq $line) { break }
-  $out = @{ ok = $false; value = ''; name = ''; control = '' }
+  $out = @{ ok = $false; value = ''; selected = ''; url = ''; name = ''; control = '' }
   try {
     $el = [System.Windows.Automation.AutomationElement]::FocusedElement
     if ($el) {
@@ -18,8 +18,29 @@ while ($true) {
       $p = $null
       if ($el.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$p)) {
         $out.value = $p.DocumentRange.GetText(20000); $out.ok = $true
+        $selection = $p.GetSelection()
+        if ($selection.Count -gt 0) { $out.selected = $selection[0].GetText(20000) }
       } elseif ($el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$p)) {
         $out.value = $p.Current.Value; $out.ok = $true
+      }
+      if ($line -eq 'context') {
+        $root = $el
+        $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+        while ($root.Current.ControlType -ne [System.Windows.Automation.ControlType]::Window) {
+          $parent = $walker.GetParent($root)
+          if (-not $parent) { break }
+          $root = $parent
+        }
+        $elements = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+        foreach ($candidate in $elements) {
+          if ($candidate.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit) { continue }
+          if ($candidate.Current.Name -notmatch '(address|search bar|location|url)') { continue }
+          $vp = $null
+          if ($candidate.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp) -and $vp.Current.Value -match '^https?://') {
+            $out.url = $vp.Current.Value
+            break
+          }
+        }
       }
     }
   } catch { $out.error = $_.Exception.Message }
@@ -32,6 +53,8 @@ export interface FocusedText {
   value: string;
   name: string;
   control: string;
+  selected: string;
+  url: string | null;
 }
 
 let proc: ChildProcessWithoutNullStreams | null = null;
@@ -60,13 +83,13 @@ function ensure(): ChildProcessWithoutNullStreams {
 }
 
 /** Read the focused element's text (≤20k chars). Resolves with ok:false on timeout or unsupported controls. */
-export function readFocusedText(timeoutMs = 1500): Promise<FocusedText> {
+export function readFocusedText(timeoutMs = 1500, includeWindowContext = false): Promise<FocusedText> {
   const p = ensure();
   const { promise, resolve } = Promise.withResolvers<FocusedText>();
+  const empty = (): FocusedText => ({ ok: false, value: '', selected: '', url: null, name: '', control: '' });
   const timer = setTimeout(() => {
-    const idx = waiters.indexOf(onLine);
-    if (idx >= 0) waiters.splice(idx, 1);
-    resolve({ ok: false, value: '', name: '', control: '' });
+    resolve(empty());
+    p.kill();
   }, timeoutMs);
   function onLine(line: string) {
     clearTimeout(timer);
@@ -76,16 +99,18 @@ export function readFocusedText(timeoutMs = 1500): Promise<FocusedText> {
         resolve({
           ok: v.ok === true,
           value: 'value' in v && typeof v.value === 'string' ? v.value : '',
+          selected: 'selected' in v && typeof v.selected === 'string' ? v.selected : '',
+          url: 'url' in v && typeof v.url === 'string' && v.url ? v.url : null,
           name: 'name' in v && typeof v.name === 'string' ? v.name : '',
           control: 'control' in v && typeof v.control === 'string' ? v.control : '',
         });
-      else resolve({ ok: false, value: '', name: '', control: '' });
+      else resolve(empty());
     } catch {
-      resolve({ ok: false, value: '', name: '', control: '' });
+      resolve(empty());
     }
   }
   waiters.push(onLine);
-  p.stdin.write('read\n');
+  p.stdin.write(includeWindowContext ? 'context\n' : 'read\n');
   return promise;
 }
 

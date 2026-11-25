@@ -24,7 +24,7 @@ export interface PipelineResult {
   numSnippetExpansions: number;
   numWordsCorrected: number; // fillers/repeats/backtracks removed
   usedPhrases: string[]; // dictionary/snippet phrases that fired
-  appliedFeatures: ('list' | 'email' | 'backtrack')[];
+  appliedFeatures: ('list' | 'email' | 'backtrack' | 'file_tagging')[];
 }
 
 const FILLERS = /(^|[\s,.;!?])(?:um+|uh+m*|erm+|er|ah+|hmm+|mm+|uh-huh)(?=[\s,.;!?]|$)[,]?/gi;

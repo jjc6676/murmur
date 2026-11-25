@@ -4,6 +4,7 @@ import { basename } from 'node:path';
 
 const user32 = koffi.load('user32.dll');
 const kernel32 = koffi.load('kernel32.dll');
+const advapi32 = koffi.load('advapi32.dll');
 
 const GetForegroundWindow = user32.func('void* __stdcall GetForegroundWindow()');
 const GetWindowTextW = user32.func('int __stdcall GetWindowTextW(void* hWnd, _Out_ uint16_t* lpString, int nMaxCount)');
@@ -84,6 +85,28 @@ export function getForegroundApp(): ForegroundApp {
     CloseHandle(h);
   }
   return { hwnd: koffi.address(hwnd), exe: exe.toLowerCase(), processName: exe.replace(/\.exe$/i, '').toLowerCase(), title };
+}
+
+/** Whether the target window belongs to an elevated process. Non-queryable processes are treated as non-elevated. */
+export function isWindowElevated(hwnd: bigint | number | null): boolean {
+  if (hwnd === null) return false;
+  const pid = [0];
+  GetWindowThreadProcessId(hwnd, pid);
+  const process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid[0]);
+  if (!process) return false;
+  try {
+    const token = [null] as unknown as [unknown];
+    if (!OpenProcessToken(process, 0x0008 /* TOKEN_QUERY */, token)) return false;
+    try {
+      const elevation = { TokenIsElevated: 0 };
+      const size = [0];
+      return !!GetTokenInformation(token[0], 20 /* TokenElevation */, elevation, koffi.sizeof(TOKEN_ELEVATION), size) && elevation.TokenIsElevated !== 0;
+    } finally {
+      if (token[0]) CloseHandle(token[0]);
+    }
+  } finally {
+    CloseHandle(process);
+  }
 }
 
 const SetForegroundWindowAddr = user32.func('bool __stdcall SetForegroundWindow(intptr_t hWnd)');
