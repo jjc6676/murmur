@@ -15,6 +15,8 @@ import type {
   LlmStatus,
   Meeting,
   MeetingChatMessage,
+  MeetingArtifact,
+  MeetingChatSession,
   MeetingAnalytics,
   MeetingListItem,
   Note,
@@ -159,9 +161,18 @@ export interface MeetingsApi {
   getSpeakerClip(id: string, speaker: string): string | null;
   remove(id: string): void;
   regenerateSummary(id: string, template?: string): Meeting;
-  chat(id: string, message: string): MeetingChatMessage[];
-  chatHistory(id: string): MeetingChatMessage[];
+  chat(id: string, sessionId: string, message: string, requestId: string): MeetingChatMessage[];
+  cancelChat(requestId: string): void;
+  chatSessions(id: string): MeetingChatSession[];
+  createChatSession(id: string, title?: string): MeetingChatSession;
+  renameChatSession(id: string, sessionId: string, title: string): MeetingChatSession;
+  deleteChatSession(id: string, sessionId: string): void;
+  chatHistory(id: string, sessionId: string): MeetingChatMessage[];
+  askAll(message: string): string;
   saveChatFact(id: string, messageId: string): void;
+  listArtifacts(id: string): MeetingArtifact[];
+  createArtifact(id: string, messageId: string, title?: string): MeetingArtifact;
+  deleteArtifact(id: string, artifactId: string): void;
   extractTodos(id: string): Todo[];
   exportMarkdown(id: string): string; // file path
   importFiles(paths: string[]): MeetingListItem[]; // audio (transcribed locally) or text transcripts
@@ -179,6 +190,8 @@ export interface MeetingsApi {
   getBrief(eventId: string): { title: string; content: string };
   rateSummary(id: string, rating: 'up' | 'down' | null, note?: string): void;
   summaryVersions(id: string): { id: string; source: string; createdAt: string; summary: Meeting['summary'] }[];
+  translateSummary(id: string, language: string): { summary: Meeting['summary']; language: string; sourceGeneratedAt: string };
+  summaryTranslations(id: string): { language: string; sourceGeneratedAt: string; createdAt: string; summary: Meeting['summary'] }[];
 }
 
 export interface RecorderApi {

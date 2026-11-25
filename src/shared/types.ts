@@ -203,6 +203,22 @@ export interface MeetingSummary {
   template: string;
 }
 
+export interface MeetingArtifact {
+  id: string;
+  meetingId: string;
+  title: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface MeetingChatSession {
+  id: string;
+  meetingId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Meeting {
   id: string;
   title: string;
@@ -239,6 +255,7 @@ export interface MeetingListItem {
   importSource: string | null;
   participantCount?: number;
   taskCount?: number;
+  wordCount?: number;
   noticePosted?: boolean;
   autoShareEnabled?: boolean;
 }
@@ -256,7 +273,7 @@ export interface MeetingChatMessage {
   chatId: string;
   role: 'user' | 'assistant';
   content: string;
-  status: 'done' | 'pending' | 'failed';
+  status: 'done' | 'pending' | 'failed' | 'stopped';
   createdAt: string;
 }
 

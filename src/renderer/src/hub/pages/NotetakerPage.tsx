@@ -32,12 +32,16 @@ export function NotetakerPage() {
   const [deletingFolder, setDeletingFolder] = useState<FolderType | null>(null);
   const [switchPrompt, setSwitchPrompt] = useState(false);
   const [stopPrompt, setStopPrompt] = useState(false);
-  const [brief, setBrief] = useState<{ title: string; content: string } | null>(null);
+  const [brief, setBrief] = useState<{ title: string; content: string; event: CalendarEvent } | null>(null);
   const [cloudImport, setCloudImport] = useState<string | null>(null);
   const [granolaPrompt, setGranolaPrompt] = useState(false);
   const [granolaImporting, setGranolaImporting] = useState(false);
   const [granolaProgress, setGranolaProgress] = useState<{ current: number; total: number } | null>(null);
   const [calendarNudgeDismissed, setCalendarNudgeDismissed] = useState(() => settings.dismissedBanners.includes('notetaker:calendar-nudge'));
+  const [askOpen, setAskOpen] = useState(false);
+  const [askQuery, setAskQuery] = useState('');
+  const [askAnswer, setAskAnswer] = useState('');
+  const [askBusy, setAskBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     const [meetingRows, folderRows, calendarRows, recorderState] = await Promise.all([
@@ -101,6 +105,24 @@ export function NotetakerPage() {
   const joinAndStart = async (event: CalendarEvent) => {
     if (event.conferenceUrl) await api.app.openExternal(event.conferenceUrl);
     await startNotetaker({ title: event.title, calendarEventId: event.id });
+  };
+  const showBrief = async (event: CalendarEvent) => {
+    const result = await api.meetings.getBrief(event.id);
+    setBrief({ ...result, event });
+  };
+  const askMeetings = async (text = askQuery) => {
+    if (!text.trim()) return;
+    setAskOpen(true);
+    setAskQuery(text);
+    setAskBusy(true);
+    setAskAnswer('');
+    try {
+      setAskAnswer(await api.meetings.askAll(text));
+    } catch (error) {
+      toast(errorMessage(error), { tone: 'error' });
+    } finally {
+      setAskBusy(false);
+    }
   };
 
   const filteredMeetings = meetings.filter((meeting) => {
@@ -185,11 +207,11 @@ export function NotetakerPage() {
                     { label: 'Join meeting', onSelect: () => void api.app.openExternal(event.conferenceUrl!) },
                     { label: 'Join + Start', onSelect: () => void joinAndStart(event) },
                     { label: 'Start notes', onSelect: () => void startNotetaker({ title: event.title, calendarEventId: event.id }) },
-                    { label: 'Show brief', onSelect: () => void api.meetings.getBrief(event.id).then(setBrief) },
+                    { label: 'Show brief', onSelect: () => void showBrief(event) },
                   ]}
                 />}
                 <Button size="sm" variant="ghost" onClick={() => void api.meetings.snoozeCalendar(event.id).then(() => toast('Reminder snoozed for 2 minutes'))}>Remind later</Button>
-                <Button size="sm" variant="ghost" onClick={() => void api.meetings.getBrief(event.id).then(setBrief)}>Brief</Button>
+                <Button size="sm" variant="ghost" onClick={() => void showBrief(event)}>Brief</Button>
                 <Button size="sm" variant="ghost" onClick={() => void startNotetaker({ title: event.title, calendarEventId: event.id })}>Start notes</Button>
                 {event.conferenceUrl && <Button size="sm" onClick={() => void joinAndStart(event)}>Join + Start</Button>}
               </div>
@@ -206,11 +228,12 @@ export function NotetakerPage() {
 
         <div className="nt-tabbar">
           <Tabs tabs={[{ id: 'today', label: 'Today' }, { id: 'past', label: 'Past notes' }, { id: 'shared', label: 'Shared with me' }, { id: 'folders', label: 'Folders' }]} value={view} onChange={setView} />
+          <Button size="sm" variant="outline" onClick={() => { setAskQuery(''); setAskAnswer(''); setAskOpen(true); }}>Ask about your meetings</Button>
           {(view === 'past' || view === 'today') && <><Select value={dateRange} options={[{ value: 'any', label: 'Any time' }, { value: '1', label: 'Today' }, { value: '7', label: 'Last 7 days' }, { value: '30', label: 'Last 30 days' }, { value: '365', label: 'Last year' }]} onChange={setDateRange} ariaLabel="Meeting date range" /><Input className="nt-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search meetings" aria-label="Search meetings" /></>}
         </div>
 
         {view === 'shared' && <EmptyState title="Nothing shared with you" body="Murmur runs fully offline, so shared notes are unavailable." />}
-        {view === 'today' && <section className="nt-daily"><h2>Up next</h2>{upcoming.length ? upcoming.slice(0, 3).map((event) => <div className="nt-schedule-row" key={event.id}><CalendarDays size={17} /><span className="nt-grow">{event.title}</span><span className="nt-subtle">{new Date(event.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>) : <p className="nt-subtle">No more meetings scheduled.</p>}<h2>Done for the day</h2>{todayMeetings.map((meeting) => <Link className="nt-row" to={`/notetaker/${meeting.id}`} key={meeting.id}><strong>{meeting.title}</strong><span className="nt-subtle">{Math.max(1, Math.round(meeting.durationSec / 60))} min</span><span className="nt-subtle">{meeting.participantCount ?? 0} people</span><span className="nt-subtle">{meeting.taskCount ?? 0} tasks</span></Link>)}</section>}
+        {view === 'today' && <section className="nt-daily"><h2>Up next</h2>{upcoming.length ? upcoming.slice(0, 3).map((event) => <div className="nt-schedule-row" key={event.id}><CalendarDays size={17} /><span className="nt-grow">{event.title}</span><span className="nt-subtle">{new Date(event.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>) : <p className="nt-subtle">No more meetings scheduled.</p>}<h2>Done for the day</h2>{todayMeetings.map((meeting) => <Link className="nt-row" to={`/notetaker/${meeting.id}`} key={meeting.id}><strong>{meeting.title}</strong><span className="nt-subtle">{Math.max(1, Math.round(meeting.durationSec / 60))} min</span><span className="nt-subtle">{meeting.wordCount ?? 0} words</span><span className="nt-subtle">{meeting.participantCount ?? 0} people</span></Link>)}</section>}
         {view === 'past' && (filteredMeetings.length ? (
           <div className="nt-list" role="list">
             {filteredMeetings.map((meeting) => (
@@ -225,8 +248,9 @@ export function NotetakerPage() {
         ) : (
           <div className="nt-empty">
             <div className="nt-empty-art"><FileAudio size={26} /></div>
-            <strong>No meeting notes</strong>
-            <span className="nt-subtle">Pick up where you left off — import from other tools</span>
+            <strong>{query.trim() ? 'No meetings match your search' : 'No meeting notes'}</strong>
+            <span className="nt-subtle">{query.trim() ? `Ask Murmur about “${query.trim()}” across all your meeting notes.` : 'Pick up where you left off — import from other tools'}</span>
+            {query.trim() && <Button variant="secondary" onClick={() => void askMeetings(query)}>Ask about “{query.trim()}”</Button>}
             <div className="nt-inline-actions">
               <Button variant="outline" icon={<Import size={16} />} onClick={() => void importMeetings()}>Import meetings</Button>
               <Button variant="ghost" onClick={() => setGranolaPrompt(true)}>Import Granola</Button>
@@ -263,7 +287,8 @@ export function NotetakerPage() {
           <Input autoFocus aria-label="Folder name" placeholder="Folder name" value={folderEditor?.name ?? ''} onChange={(event) => setFolderEditor((current) => current ? { ...current, name: event.target.value } : current)} onKeyDown={(event) => { if (event.key === 'Enter') void saveFolder(); }} />
           {!folderEditor?.id && <TextArea aria-label="Folder description" placeholder="Description (optional) — used for filing suggestions" value={folderEditor?.description ?? ''} onChange={(event) => setFolderEditor((current) => current ? { ...current, description: event.target.value } : current)} />}
         </Dialog>
-        <Dialog open={brief !== null} onClose={() => setBrief(null)} title={brief?.title ?? 'Meeting brief'} footer={<Button onClick={() => setBrief(null)}>Done</Button>}><pre className="nt-brief">{brief?.content}</pre></Dialog>
+        <Dialog open={brief !== null} onClose={() => setBrief(null)} title={brief?.title ?? 'Meeting brief'} footer={<><Button variant="ghost" onClick={() => setBrief(null)}>Close</Button>{brief && <Button onClick={() => { const event = brief.event; setBrief(null); void (event.conferenceUrl ? joinAndStart(event) : startNotetaker({ title: event.title, calendarEventId: event.id })); }}>{brief?.event.conferenceUrl ? 'Join + Start' : 'Start meeting'}</Button>}</>}><pre className="nt-brief">{brief?.content}</pre></Dialog>
+        <Dialog open={askOpen} onClose={() => setAskOpen(false)} title="Ask about your meetings" description="Ask a natural-language question across your local meeting notes." footer={<><Button variant="ghost" onClick={() => setAskOpen(false)}>Close</Button><Button loading={askBusy} disabled={!askQuery.trim()} onClick={() => void askMeetings()}>Ask</Button></>}><div className="nt-ask"><Input autoFocus aria-label="Ask about your meetings" placeholder="Open action items from yesterday" value={askQuery} onChange={(event) => setAskQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void askMeetings(); }} />{askBusy && <span role="status">Searching your meeting notes…</span>}{askAnswer && <div className="ask-answer"><div>{askAnswer}</div><Button size="sm" variant="ghost" onClick={() => void api.app.copyText(askAnswer).then(() => toast('Response copied', { tone: 'success' }))}>Copy response</Button></div>}</div></Dialog>
         <Dialog open={cloudImport !== null} onClose={() => setCloudImport(null)} title={`Import from ${cloudImport ?? ''}`} footer={<Button onClick={() => setCloudImport(null)}>Done</Button>}><p>Murmur runs fully offline, so cloud account imports are unavailable. Export your meetings from {cloudImport} and use Import meetings instead.</p>{cloudImport === 'Fireflies' && <Input aria-label="Fireflies API key" placeholder="Fireflies API key" disabled />}</Dialog>
         <Dialog open={switchPrompt} onClose={() => setSwitchPrompt(false)} title="Stop Notetaker?" description="The current recording will be saved and can be resumed later. Stop it before switching to a new meeting?" footer={<><Button variant="ghost" onClick={() => setSwitchPrompt(false)}>Cancel</Button><Button onClick={() => void api.recorder.start({ replaceActive: true }).then((next) => { setSwitchPrompt(false); if (next.meetingId) return api.recorder.openNotepad(next.meetingId); })}>Stop and switch</Button></>} />
         <ConfirmDialog open={stopPrompt} title="Stop Notetaker?" body="The current recording will stop and Murmur will finish the transcript and summary." confirmLabel="Stop Notetaker" danger onClose={() => setStopPrompt(false)} onConfirm={() => { setStopPrompt(false); void api.recorder.stop(); }} />

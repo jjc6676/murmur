@@ -99,6 +99,7 @@ export function listMeetings(opts: { query?: string; folderId?: string | null; l
       importSource: row.importSource,
       participantCount: new Set(parseJson<TranscriptSegment[]>(row.transcript, []).map((segment) => segment.speaker)).size,
       taskCount: getCtx().db.get<{ count: number }>('SELECT COUNT(*) AS count FROM todos WHERE meetingId = ? AND isDeleted = 0', row.id)?.count ?? 0,
+      wordCount: parseJson<TranscriptSegment[]>(row.transcript, []).reduce((total, segment) => total + segment.text.trim().split(/\s+/).filter(Boolean).length, 0),
       noticePosted: Boolean(row.noticePosted),
       autoShareEnabled: Boolean(row.autoShareEnabled),
     };

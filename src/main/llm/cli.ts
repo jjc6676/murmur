@@ -60,6 +60,20 @@ export class LlmError extends Error {
   }
 }
 
+function terminateProcessTree(pid: number | undefined): void {
+  if (!pid) return;
+  if (process.platform === 'win32') {
+    const killer = spawn('taskkill.exe', ['/pid', String(pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
+    killer.unref();
+    return;
+  }
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch {
+    // The CLI may have exited between the cancellation request and termination.
+  }
+}
+
 function runProcess(cmd: ResolvedCommand, args: string[], stdin: string, timeoutMs: number, signal?: AbortSignal, cwd?: string): Promise<{ code: number; stdout: string; stderr: string }> {
   const { promise, resolve, reject } = Promise.withResolvers<{ code: number; stdout: string; stderr: string }>();
   const child = spawn(cmd.command, [...cmd.prefixArgs, ...args], {
@@ -73,14 +87,15 @@ function runProcess(cmd: ResolvedCommand, args: string[], stdin: string, timeout
   child.stdout.setEncoding('utf8').on('data', (d: string) => (stdout += d));
   child.stderr.setEncoding('utf8').on('data', (d: string) => (stderr += d));
   const timer = setTimeout(() => {
-    child.kill();
+    terminateProcessTree(child.pid);
     reject(new LlmError(`LLM request timed out after ${Math.round(timeoutMs / 1000)}s`, 'timeout'));
   }, timeoutMs);
   const onAbort = () => {
-    child.kill();
+    terminateProcessTree(child.pid);
     reject(new LlmError('LLM request cancelled', 'cancelled'));
   };
   signal?.addEventListener('abort', onAbort, { once: true });
+  if (signal?.aborted) onAbort();
   child.once('error', (e) => {
     clearTimeout(timer);
     reject(new LlmError(e.message, 'unavailable'));

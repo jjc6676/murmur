@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, w
 import { basename, extname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { app, dialog, shell } from 'electron';
-import type { CalendarEvent, Meeting, MeetingChatMessage, Todo, TranscriptSegment } from '@shared/types';
+import type { CalendarEvent, Meeting, MeetingArtifact, MeetingChatMessage, MeetingChatSession, Todo, TranscriptSegment } from '@shared/types';
 import { getCtx } from '../context';
 import { newId, nowIso } from '../db';
 import { broadcast, callerWindow, handle } from '../ipc';
@@ -12,10 +12,21 @@ import { addNotification, showToast } from '../toasts';
 import { ensureHub } from '../windows';
 import { pcm16ToWav, wavToPcm16 } from '../audio/wav';
 import { parseIcs } from '../meetings/ics';
-import { generateMeetingSummary, summaryMarkdown } from '../meetings/summary';
+import { generateMeetingSummary, listSummaryTranslations, summaryMarkdown, translateMeetingSummary } from '../meetings/summary';
 import { getMeeting, listFolders, listMeetings, updateSearchable } from '../meetings/store';
 import { startRecording } from './recorder';
 let granolaCancelRequested = false;
+const chatRequests = new Map<string, AbortController>();
+
+function ensureChatSession(meetingId: string): MeetingChatSession {
+  const existing = getCtx().db.get<MeetingChatSession>('SELECT * FROM meeting_chat_sessions WHERE meetingId = ? ORDER BY updatedAt DESC LIMIT 1', meetingId);
+  if (existing) return existing;
+  const createdAt = nowIso();
+  const session: MeetingChatSession = { id: newId(), meetingId, title: 'New chat', createdAt, updatedAt: createdAt };
+  getCtx().db.insert('meeting_chat_sessions', session);
+  getCtx().db.run("UPDATE meeting_chat SET sessionId = ? WHERE meetingId = ? AND sessionId = ''", session.id, meetingId);
+  return session;
+}
 
 function requireMeeting(id: string): Meeting {
   const meeting = getMeeting(id);
@@ -170,8 +181,8 @@ async function importGranolaCsv(filePath: string): Promise<{ imported: number; t
   return { imported, total: meetings.length };
 }
 
-function rowToChat(row: { id: string; meetingId: string; role: 'user' | 'assistant'; content: string; status: 'done' | 'pending' | 'failed'; createdAt: string }): MeetingChatMessage {
-  return { id: row.id, chatId: row.meetingId, role: row.role, content: row.content, status: row.status, createdAt: row.createdAt };
+function rowToChat(row: { id: string; sessionId: string; role: 'user' | 'assistant'; content: string; status: MeetingChatMessage['status']; createdAt: string }): MeetingChatMessage {
+  return { id: row.id, chatId: row.sessionId, role: row.role, content: row.content, status: row.status, createdAt: row.createdAt };
 }
 
 function addTodo(meeting: Meeting, title: string): Todo {
@@ -335,12 +346,15 @@ export function registerMeetings(): void {
       broadcast('meetings:changed', { id });
     },
     regenerateSummary: (id, template) => generateMeetingSummary(id, template),
-    async chat(id, message) {
+    async chat(id, sessionId, message, requestId) {
       const meeting = requireMeeting(id);
+      const session = getCtx().db.get<MeetingChatSession>('SELECT * FROM meeting_chat_sessions WHERE id = ? AND meetingId = ?', sessionId, id);
+      if (!session) throw new Error('Chat session not found');
       const trimmed = message.trim();
       if (!trimmed) throw new Error('Ask a question first');
-      const user: MeetingChatMessage = { id: newId(), chatId: id, role: 'user', content: trimmed, status: 'done', createdAt: nowIso() };
-      getCtx().db.insert('meeting_chat', { id: user.id, meetingId: id, role: user.role, content: user.content, status: user.status, createdAt: user.createdAt });
+      const user: MeetingChatMessage = { id: newId(), chatId: sessionId, role: 'user', content: trimmed, status: 'done', createdAt: nowIso() };
+      getCtx().db.insert('meeting_chat', { id: user.id, meetingId: id, sessionId, role: user.role, content: user.content, status: user.status, createdAt: user.createdAt });
+      getCtx().db.update('meeting_chat_sessions', sessionId, { title: session.title === 'New chat' ? trimmed.slice(0, 48) : session.title, updatedAt: nowIso() });
       let instruction = 'Answer using only the meeting transcript and summary. Be concise and say when the meeting does not contain the answer.';
       const command = trimmed.match(/^\/([a-z0-9-]+)/)?.[1];
       if (command) {
@@ -353,15 +367,69 @@ export function registerMeetings(): void {
       const isCatchUp = /^what did i miss[?!.]*$/i.test(trimmed);
       const previousDigest = isCatchUp ? getCtx().db.kvGet<string | null>(catchUpKey, null) : null;
       if (isCatchUp) getCtx().db.kvSet(catchUpKey, contextDigest);
-      const answer = isCatchUp && previousDigest === contextDigest
-        ? 'Nothing new since you last looked.'
-        : await getCtx().llm({ system: instruction, input: `${context}\n\nQuestion: ${trimmed}` });
-      const assistant: MeetingChatMessage = { id: newId(), chatId: id, role: 'assistant', content: answer, status: 'done', createdAt: nowIso() };
-      getCtx().db.insert('meeting_chat', { id: assistant.id, meetingId: id, role: assistant.role, content: assistant.content, status: assistant.status, createdAt: assistant.createdAt });
+      const controller = new AbortController();
+      chatRequests.set(requestId, controller);
+      let answer: string;
+      let status: MeetingChatMessage['status'] = 'done';
+      try {
+        answer = isCatchUp && previousDigest === contextDigest
+          ? 'Nothing new since you last looked.'
+          : await getCtx().llm({ system: instruction, input: `${context}\n\nQuestion: ${trimmed}`, signal: controller.signal });
+      } catch (error) {
+        if (!controller.signal.aborted) throw error;
+        answer = '[Request stopped]';
+        status = 'stopped';
+      } finally {
+        chatRequests.delete(requestId);
+      }
+      const assistant: MeetingChatMessage = { id: newId(), chatId: sessionId, role: 'assistant', content: answer, status, createdAt: nowIso() };
+      getCtx().db.insert('meeting_chat', { id: assistant.id, meetingId: id, sessionId, role: assistant.role, content: assistant.content, status: assistant.status, createdAt: assistant.createdAt });
       return [user, assistant];
     },
-    chatHistory(id) {
-      return getCtx().db.all<{ id: string; meetingId: string; role: 'user' | 'assistant'; content: string; status: 'done' | 'pending' | 'failed'; createdAt: string }>('SELECT * FROM meeting_chat WHERE meetingId = ? ORDER BY createdAt', id).map(rowToChat);
+    cancelChat(requestId) {
+      chatRequests.get(requestId)?.abort();
+    },
+    chatSessions(id) {
+      requireMeeting(id);
+      ensureChatSession(id);
+      return getCtx().db.all<MeetingChatSession>('SELECT * FROM meeting_chat_sessions WHERE meetingId = ? ORDER BY updatedAt DESC', id);
+    },
+    createChatSession(id, title = 'New chat') {
+      requireMeeting(id);
+      const timestamp = nowIso();
+      const session: MeetingChatSession = { id: newId(), meetingId: id, title: title.trim() || 'New chat', createdAt: timestamp, updatedAt: timestamp };
+      getCtx().db.insert('meeting_chat_sessions', session);
+      return session;
+    },
+    renameChatSession(id, sessionId, title) {
+      requireMeeting(id);
+      const trimmed = title.trim();
+      if (!trimmed) throw new Error('Chat name cannot be empty');
+      getCtx().db.run('UPDATE meeting_chat_sessions SET title = ?, updatedAt = ? WHERE id = ? AND meetingId = ?', trimmed, nowIso(), sessionId, id);
+      const session = getCtx().db.get<MeetingChatSession>('SELECT * FROM meeting_chat_sessions WHERE id = ? AND meetingId = ?', sessionId, id);
+      if (!session) throw new Error('Chat session not found');
+      return session;
+    },
+    deleteChatSession(id, sessionId) {
+      requireMeeting(id);
+      const count = getCtx().db.get<{ count: number }>('SELECT COUNT(*) AS count FROM meeting_chat_sessions WHERE meetingId = ?', id)?.count ?? 0;
+      if (count <= 1) throw new Error('Start another chat before deleting this one');
+      getCtx().db.tx(() => {
+        getCtx().db.run('DELETE FROM meeting_chat WHERE meetingId = ? AND sessionId = ?', id, sessionId);
+        getCtx().db.run('DELETE FROM meeting_chat_sessions WHERE meetingId = ? AND id = ?', id, sessionId);
+      });
+    },
+    chatHistory(id, sessionId) {
+      requireMeeting(id);
+      return getCtx().db.all<{ id: string; sessionId: string; role: 'user' | 'assistant'; content: string; status: MeetingChatMessage['status']; createdAt: string }>('SELECT * FROM meeting_chat WHERE meetingId = ? AND sessionId = ? ORDER BY createdAt', id, sessionId).map(rowToChat);
+    },
+    async askAll(message) {
+      const trimmed = message.trim();
+      if (!trimmed) throw new Error('Ask a question first');
+      const meetings = listMeetings({ limit: 50 }).map((item) => requireMeeting(item.id));
+      if (!meetings.length) throw new Error('Record or import a meeting first');
+      const context = meetings.map((meeting) => `# ${meeting.title} (${meeting.createdAt})\n${meeting.summary ? JSON.stringify(meeting.summary) : meeting.transcript.map((segment) => `${segment.speakerName}: ${segment.text}`).join('\n')}`).join('\n\n');
+      return getCtx().llm({ system: 'Answer across the supplied meetings only. Name the meetings that support the answer and say when the notes do not contain it.', input: `${context}\n\nQuestion: ${trimmed}` });
     },
     saveChatFact(id, messageId) {
       const meeting = requireMeeting(id);
@@ -374,6 +442,24 @@ export function registerMeetings(): void {
         getCtx().db.insert('memory_docs', { id: newId(), folder: 'knowledge', title: 'Saved facts', content: `- ${message.content}`, source: `Meeting: ${meeting.title}`, changedBy: 'user', versions: '[]', modifiedAt: nowIso() });
       }
       broadcast('memory:status', { state: 'idle', lastRunAt: null, docCount: getCtx().db.get<{ count: number }>('SELECT COUNT(*) AS count FROM memory_docs')?.count ?? 0, sources: { meetings: 0, dictations: 0, notes: 0 }, error: null });
+    },
+    listArtifacts(id) {
+      requireMeeting(id);
+      return getCtx().db.all<MeetingArtifact>('SELECT * FROM meeting_artifacts WHERE meetingId = ? ORDER BY createdAt', id);
+    },
+    createArtifact(id, messageId, title = 'Artifact') {
+      requireMeeting(id);
+      const message = getCtx().db.get<{ content: string }>('SELECT content FROM meeting_chat WHERE id = ? AND meetingId = ? AND role = ?', messageId, id, 'assistant');
+      if (!message) throw new Error('Chat response not found');
+      const artifact: MeetingArtifact = { id: newId(), meetingId: id, title: title.trim() || 'Artifact', content: message.content, createdAt: nowIso() };
+      getCtx().db.insert('meeting_artifacts', artifact);
+      broadcast('meetings:changed', { id });
+      return artifact;
+    },
+    deleteArtifact(id, artifactId) {
+      requireMeeting(id);
+      getCtx().db.run('DELETE FROM meeting_artifacts WHERE id = ? AND meetingId = ?', artifactId, id);
+      broadcast('meetings:changed', { id });
     },
     extractTodos(id) {
       const meeting = requireMeeting(id);
@@ -509,6 +595,8 @@ export function registerMeetings(): void {
       requireMeeting(id);
       return getCtx().db.all<{ id: string; source: string; createdAt: string; content: string }>('SELECT id, source, createdAt, content FROM meeting_versions WHERE meetingId = ? ORDER BY createdAt DESC', id).map((row) => ({ id: row.id, source: row.source, createdAt: row.createdAt, summary: JSON.parse(row.content) as Meeting['summary'] }));
     },
+    translateSummary: (id, language) => translateMeetingSummary(id, language),
+    summaryTranslations: (id) => listSummaryTranslations(id),
   });
   void loadCalendar();
   enforceTranscriptRetention();

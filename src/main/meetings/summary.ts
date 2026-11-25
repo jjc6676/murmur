@@ -33,7 +33,7 @@ export async function generateMeetingSummary(id: string, requestedTemplate?: str
   const transcript = meeting.transcript.map((segment) => `${segment.speakerName}: ${segment.text}`).join('\n');
   try {
     const raw = await getCtx().llm({
-      system: `Create a meeting summary as JSON only. Return exactly {"title":string,"overview":string,"sections":[{"heading":string,"bullets":string[]}],"actionItems":[{"text":string,"owner":string|null}]}. ${TEMPLATE_PROMPTS[template] ?? TEMPLATE_PROMPTS.auto}`,
+      system: `Refine the transcript into a polished meeting summary: identify each speaker from the supplied labels, preserve who said and owns what, and remove repetition without losing decisions. Return JSON only with exactly {"title":string,"overview":string,"sections":[{"heading":string,"bullets":string[]}],"actionItems":[{"text":string,"owner":string|null}]}. ${TEMPLATE_PROMPTS[template] ?? TEMPLATE_PROMPTS.auto}`,
       input: transcript,
     });
     const parsed: unknown = JSON.parse(cleanJson(raw));
@@ -58,6 +58,59 @@ export async function generateMeetingSummary(id: string, requestedTemplate?: str
     getCtx().db.update('meetings', id, { summaryStatus: 'failed' });
     throw error;
   }
+}
+
+export interface SummaryTranslation {
+  language: string;
+  sourceGeneratedAt: string;
+  createdAt: string;
+  summary: MeetingSummary;
+}
+
+export async function translateMeetingSummary(id: string, language: string): Promise<SummaryTranslation> {
+  const meeting = getMeeting(id);
+  if (!meeting?.summary) throw new Error('Generate the original summary first');
+  const target = language.trim();
+  if (!target) throw new Error('Choose a summary language');
+  const raw = await getCtx().llm({
+    system: `Translate the meeting summary into ${target}. Preserve every fact, owner, and action item. Return JSON only with exactly {"title":string,"overview":string,"sections":[{"heading":string,"bullets":string[]}],"actionItems":[{"text":string,"owner":string|null}]}.`,
+    input: JSON.stringify(meeting.summary),
+  });
+  const parsed: unknown = JSON.parse(cleanJson(raw));
+  if (!isSummary(parsed)) throw new Error('The translated summary response was not valid');
+  const createdAt = nowIso();
+  const translated: MeetingSummary = {
+    title: parsed.title,
+    overview: parsed.overview,
+    sections: parsed.sections,
+    actionItems: parsed.actionItems,
+    generatedAt: createdAt,
+    provider: getCtx().settings.get().llm.provider,
+    template: meeting.summary.template,
+  };
+  getCtx().db.insert('meeting_versions', {
+    id: newId(),
+    meetingId: id,
+    content: JSON.stringify(translated),
+    source: 'translated_summary',
+    transformId: target,
+    prompt: meeting.summary.generatedAt,
+    createdAt,
+  });
+  return { language: target, sourceGeneratedAt: meeting.summary.generatedAt, createdAt, summary: translated };
+}
+
+export function listSummaryTranslations(id: string): SummaryTranslation[] {
+  if (!getMeeting(id)) throw new Error('Meeting not found');
+  return getCtx().db.all<{ content: string; transformId: string; prompt: string; createdAt: string }>(
+    "SELECT content, transformId, prompt, createdAt FROM meeting_versions WHERE meetingId = ? AND source = 'translated_summary' ORDER BY createdAt DESC",
+    id,
+  ).map((row) => ({
+    language: row.transformId,
+    sourceGeneratedAt: row.prompt,
+    createdAt: row.createdAt,
+    summary: JSON.parse(row.content) as MeetingSummary,
+  }));
 }
 
 export function summaryMarkdown(meeting: Meeting): string {

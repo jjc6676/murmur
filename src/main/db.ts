@@ -331,6 +331,25 @@ const MIGRATIONS: string[] = [
   CREATE INDEX skills_command ON skills(command);
   `,
   `
+  ALTER TABLE meeting_chat ADD COLUMN sessionId TEXT NOT NULL DEFAULT '';
+  CREATE TABLE meeting_chat_sessions (
+    id TEXT PRIMARY KEY,
+    meetingId TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL
+  );
+  CREATE INDEX meeting_chat_sessions_meeting ON meeting_chat_sessions(meetingId, updatedAt);
+  CREATE TABLE meeting_artifacts (
+    id TEXT PRIMARY KEY,
+    meetingId TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+  );
+  CREATE INDEX meeting_artifacts_meeting ON meeting_artifacts(meetingId, createdAt);
+  `,
+  `
   ALTER TABLE meetings ADD COLUMN transcriptDeletedAt TEXT;
   `,
 ];
