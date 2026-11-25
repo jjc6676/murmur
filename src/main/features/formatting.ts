@@ -92,11 +92,14 @@ export interface FormatOptions {
   appUrl?: string | null;
 }
 
-/** Words worth biasing whisper toward from the focused app (IDE identifiers/files, or recent field text). */
+/**
+ * Words worth biasing whisper toward from the focused app: IDE file names and identifiers only.
+ * Raw field prose is never used: whisper.cpp tends to echo its prompt verbatim into the transcript,
+ * which would paste existing textbox content back into the dictation.
+ */
 export function contextPrompt(app: { processName: string; title: string }, contextText: string): string {
-  if (!contextText && !isIdeApp(app.processName, app.title)) return '';
-  if (isIdeApp(app.processName, app.title)) return [...extractFileNames(app.title, contextText), ...extractIdentifiers(contextText, 40)].join(', ').slice(0, 400);
-  return contextText.slice(-300);
+  if (!isIdeApp(app.processName, app.title)) return '';
+  return [...extractFileNames(app.title, contextText), ...extractIdentifiers(contextText, 40)].join(', ').slice(0, 400);
 }
 
 export async function formatForApp(raw: string, app: { processName: string; title: string }, opts: FormatOptions = {}): Promise<FormatOutcome> {
