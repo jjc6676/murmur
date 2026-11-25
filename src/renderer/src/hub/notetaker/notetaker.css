@@ -1,0 +1,70 @@
+.nt-page { display: flex; flex-direction: column; gap: 24px; }
+.nt-schedule { background: var(--background-secondary); border-radius: 16px; padding: 16px 20px; display: grid; gap: 14px; }
+.nt-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.nt-schedule-row { display: flex; align-items: center; gap: 12px; min-height: 48px; }
+.nt-schedule-icon { width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 8px; display: grid; place-items: center; background: var(--card); }
+.nt-grow { flex: 1; min-width: 0; }
+.nt-title { font-size: 14px; font-weight: 500; }
+.nt-subtle { font-size: 12px; color: var(--foreground-tertiary); }
+.nt-tabbar { display: flex; align-items: center; border-bottom: 1px solid var(--border); }
+.nt-search { margin-left: auto; max-width: 240px; }
+.nt-list { display: grid; }
+.nt-row { display: grid; grid-template-columns: minmax(180px, 1.2fr) 120px 100px minmax(160px, 1fr); align-items: center; gap: 16px; padding: 15px 8px; border-bottom: 1px solid var(--border); color: inherit; text-decoration: none; }
+.nt-row:hover { background: var(--row-hover); }
+.nt-row-title { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nt-empty { padding: 70px 16px; text-align: center; display: grid; justify-items: center; gap: 10px; }
+.nt-empty-art { width: 108px; height: 54px; border-radius: 10px; background: var(--background-secondary); border: 1px solid var(--border); transform: rotate(-2deg); display: grid; place-items: center; }
+.nt-folders { display: grid; gap: 8px; }
+.nt-folder { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; }
+.nt-folder-actions { margin-left: auto; display: flex; gap: 6px; }
+.nt-inline-actions { display: flex; gap: 8px; }
+.meeting-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; }
+.meeting-main { min-width: 0; }
+.meeting-title-input { font: 600 24px Figtree, sans-serif; border: 0; background: transparent; color: var(--foreground); width: min(620px, 100%); padding: 0; }
+.meeting-meta { color: var(--foreground-tertiary); font-size: 13px; margin-top: 6px; }
+.meeting-panel { padding-top: 20px; }
+.thoughts-editor { width: 100%; min-height: 360px; }
+.transcript-tools { display: flex; gap: 8px; margin-bottom: 14px; }
+.transcript-line { display: grid; grid-template-columns: 100px 1fr auto; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.speaker-chip { font-size: 12px; font-weight: 600; color: var(--speaker-1, var(--accent-text)); }
+.segment-text { line-height: 1.5; }
+.segment-translation { display: block; color: var(--foreground-tertiary); margin-top: 4px; }
+.summary-overview { font-size: 16px; line-height: 1.55; }
+.summary-section { margin-top: 24px; }
+.summary-section li { margin: 8px 0; }
+.action-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; }
+.meeting-rail { border-left: 1px solid var(--border); padding-left: 20px; display: flex; flex-direction: column; gap: 14px; }
+.chat-log { min-height: 220px; max-height: 420px; overflow: auto; display: grid; align-content: start; gap: 10px; }
+.chat-bubble { padding: 10px 12px; border-radius: 10px; background: var(--background-secondary); font-size: 13px; white-space: pre-wrap; }
+.chat-bubble[data-role=user] { background: var(--accent-soft); }
+.chat-form { display: flex; gap: 8px; }
+.chat-form input { min-width: 0; }
+.skill-hints { font-size: 11px; color: var(--foreground-tertiary); }
+.checklist { border: 1px solid var(--border); background: var(--card); border-radius: 12px; padding: 14px 12px; display: grid; gap: 10px; }
+.checklist-head { font-size: 12px; font-weight: 600; }
+.checklist-item { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--foreground); padding: 4px 0; text-align: left; font-size: 12px; }
+.checklist-skip { margin-left: auto; }
+.tour-step { min-height: 130px; display: grid; place-items: center; text-align: center; }
+.recorder-root { height: 100vh; background: var(--background); color: var(--foreground); display: flex; flex-direction: column; }
+.recorder-header { display: flex; align-items: center; gap: 8px; padding: 12px; -webkit-app-region: drag; border-bottom: 1px solid var(--border); }
+.recorder-header button, .recorder-header input { -webkit-app-region: no-drag; }
+.recorder-title { flex: 1; border: 0; background: transparent; color: var(--foreground); font-weight: 600; min-width: 0; }
+.recorder-timer { font: 12px 'JetBrains Mono', monospace; }
+.levels { display: flex; gap: 4px; }
+.level { width: 4px; height: 22px; border-radius: 4px; background: var(--border); overflow: hidden; display: flex; align-items: flex-end; }
+.level > span { width: 100%; background: var(--success); }
+.recorder-body { padding: 14px; overflow: auto; flex: 1; }
+.recorder-tabs { padding: 0 12px; }
+.recorder-transcript { display: grid; gap: 14px; }
+.recorder-segment { display: grid; grid-template-columns: 68px 1fr; gap: 10px; }
+.recorder-actions { display: flex; gap: 8px; }
+.consent { margin: 12px; padding: 10px; background: var(--warning-soft); border-radius: 8px; font-size: 12px; }
+.idle-recorder { padding: 30px 20px; display: grid; gap: 18px; text-align: center; }
+.recent-note { padding: 10px 0; border: 0; border-bottom: 1px solid var(--border); text-align: left; background: transparent; color: inherit; width: 100%; }
+
+@media (max-width: 900px) {
+  .meeting-layout { grid-template-columns: 1fr; }
+  .meeting-rail { border-left: 0; border-top: 1px solid var(--border); padding: 20px 0; }
+  .nt-row { grid-template-columns: 1fr 100px; }
+  .nt-row > *:nth-child(n + 3) { display: none; }
+}

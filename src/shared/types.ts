@@ -147,6 +147,8 @@ export interface TranscriptSegment {
   end: number;
   text: string;
   edited: boolean;
+  translatedText?: string;
+  originalText?: string;
 }
 
 export interface MeetingSummarySection {
