@@ -19,6 +19,11 @@ export function NotetakerPage() {
   const [dateRange, setDateRange] = useState('any');
   const [loadedAt] = useState(() => Date.now());
   const [todayKey] = useState(() => new Date().toDateString());
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
   const [meetings, setMeetings] = useState<MeetingListItem[]>([]);
   const [folders, setFolders] = useState<FolderType[]>([]);
   const [upcoming, setUpcoming] = useState<CalendarEvent[]>([]);
@@ -142,7 +147,7 @@ export function NotetakerPage() {
           </div>
           <div className="nt-label">Upcoming</div>
           {upcoming.length ? upcoming.slice(0, 3).map((event) => {
-            const now = Date.now();
+            const now = clock;
             const startsAt = new Date(event.start).getTime();
             const endsAt = new Date(event.end).getTime();
             const conflict = upcoming.some((other) => other.id !== event.id && new Date(other.start).getTime() < endsAt && new Date(other.end).getTime() > startsAt);
