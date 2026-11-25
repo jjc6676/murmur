@@ -1,10 +1,5 @@
-// SCAFFOLD: replaced by its owning slice.
-import { Page, PageHeader } from '../../ui';
+import { VocabPage } from '../vocab/VocabPage';
 
 export function DictionaryPage() {
-  return (
-    <Page>
-      <PageHeader title="Dictionary" />
-    </Page>
-  );
+  return <VocabPage snippets={false} />;
 }

@@ -1,10 +1,5 @@
-// SCAFFOLD: replaced by its owning slice.
-import { Page, PageHeader } from '../../ui';
+import { StyleExperience } from '../style/StyleExperience';
 
 export function StylePage() {
-  return (
-    <Page>
-      <PageHeader title="Style" />
-    </Page>
-  );
+  return <StyleExperience />;
 }

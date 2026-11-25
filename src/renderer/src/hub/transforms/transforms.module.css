@@ -1,0 +1,40 @@
+.headerControls { display:flex; align-items:center; gap:10px; }
+.shortcutPill { display:flex; align-items:center; gap:6px; padding:6px 10px; border:1px solid var(--border); border-radius:18px; background:var(--background-secondary); color:var(--foreground-secondary); font-size:13px; }
+.hero { margin-top:20px; }
+.heroArt { position:absolute; inset:0 0 0 60%; background:radial-gradient(circle at 40% 40%, rgb(233 150 91 / .75), transparent 28%), radial-gradient(circle at 80% 70%, rgb(105 170 136 / .7), transparent 35%); }
+.autoRow { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:20px 0; }
+.autoControls { display:flex; align-items:center; gap:10px; }
+.sectionHead { display:flex; align-items:center; justify-content:space-between; margin:8px 0 14px; }
+.sectionHead h2 { margin:0; font:500 30px 'EB Garamond'; }
+.cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.card { min-height:144px; padding:22px; text-align:left; border:1px solid var(--border); border-radius:16px; background:var(--card); color:var(--foreground); cursor:pointer; }
+.card:hover { background:var(--row-hover); }
+.card h3 { margin:15px 0 6px; font-size:15px; }
+.card p { margin:0; color:var(--foreground-tertiary); font-size:14px; }
+.plus { display:grid; place-items:center; width:30px; height:30px; border-radius:50%; background:var(--background-secondary); }
+.dialogFields { display:grid; gap:16px; }
+.shortcutRecorder { display:flex; align-items:center; gap:10px; }
+.ruleList { display:grid; gap:7px; }
+.rule { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 10px; border:1px solid var(--border); border-radius:9px; }
+.addRule { display:flex; gap:8px; }
+.samples { display:grid; gap:10px; }
+.sample { position:relative; padding:12px 36px 12px 12px; border-radius:9px; background:var(--background-secondary); font-size:13px; white-space:pre-wrap; }
+.sample button { position:absolute; right:7px; top:7px; }
+.counter { text-align:right; color:var(--foreground-tertiary); font-size:12px; }
+.tryPanel { margin-top:28px; padding:20px; border:1px solid var(--border); border-radius:16px; }
+.tryControls { display:flex; gap:10px; align-items:flex-end; }
+.tryControls > :first-child { flex:1; }
+.resultGrid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:16px; }
+.result { padding:14px; border-radius:10px; background:var(--background-secondary); white-space:pre-wrap; }
+.result b { display:block; margin-bottom:8px; }
+.resultActions { display:flex; justify-content:flex-end; margin-top:12px; }
+.history { margin-top:26px; }
+.historyRow { display:grid; grid-template-columns:120px 1fr auto; gap:12px; padding:12px 0; border-bottom:1px solid var(--border); font-size:13px; }
+.historyText { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--foreground-secondary); }
+.howSteps { display:grid; gap:14px; }
+.howStep { display:flex; gap:12px; align-items:flex-start; }
+.stepNo { display:grid; place-items:center; flex:0 0 28px; height:28px; border-radius:50%; background:var(--foreground); color:var(--background); font-weight:600; }
+.diff { line-height:1.9; white-space:pre-wrap; font-size:15px; }
+.diffAdd { padding:2px 1px; background:var(--success-soft); color:var(--success); text-decoration:none; }
+.diffRemove { padding:2px 1px; background:var(--destructive-soft); color:var(--destructive); }
+@media (max-width:800px) { .cards { grid-template-columns:1fr 1fr; } .resultGrid { grid-template-columns:1fr; } }

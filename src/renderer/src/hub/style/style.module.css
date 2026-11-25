@@ -1,0 +1,39 @@
+.tabs { margin-bottom:24px; }
+.hero { margin-bottom:28px; }
+.heroArt { position:absolute; inset:0 0 0 55%; background:radial-gradient(circle at 50% 45%, rgb(232 151 83 / .72), transparent 45%), linear-gradient(120deg, transparent, rgb(58 140 132 / .55)); filter:blur(2px); }
+.sectionHead { margin:0 0 6px; font:500 28px 'EB Garamond'; }
+.subtle { margin:0 0 20px; color:var(--foreground-tertiary); font-size:14px; }
+.toneGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.toneCard { appearance:none; text-align:left; padding:18px; border:1px solid var(--border); border-radius:14px; background:var(--card); color:var(--foreground); cursor:pointer; }
+.toneCard:hover { background:var(--row-hover); }
+.toneCard.selected { border-color:var(--foreground); box-shadow:0 0 0 1px var(--foreground); }
+.toneTop { display:flex; align-items:center; justify-content:space-between; font-weight:600; }
+.previewFrame { margin-top:14px; overflow:hidden; border:1px solid var(--border); border-radius:10px; background:var(--background-secondary); }
+.frameTop { display:flex; align-items:center; gap:5px; height:22px; padding:0 8px; background:var(--background-tertiary); }
+.frameTop i { width:5px; height:5px; border-radius:50%; background:var(--foreground-tertiary); }
+.message { margin:12px; padding:10px 12px; border-radius:10px 10px 3px 10px; background:var(--accent-soft); font-size:13px; line-height:1.4; white-space:pre-wrap; }
+.apps { margin-top:28px; padding:20px; border:1px solid var(--border); border-radius:14px; }
+.appsHeader { display:flex; justify-content:space-between; gap:16px; }
+.chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+.chip { display:inline-flex; align-items:center; gap:5px; padding:6px 9px; border-radius:8px; background:var(--background-secondary); font-size:13px; }
+.chip button { border:0; background:none; color:inherit; cursor:pointer; padding:0; }
+.addApp { display:flex; gap:8px; margin-top:12px; }
+.disclaimer { display:flex; gap:8px; margin:20px 2px; color:var(--foreground-tertiary); font-size:13px; }
+.cleanupGrid { display:grid; gap:10px; }
+.cleanupCard { display:grid; grid-template-columns:24px 1fr 1.2fr; gap:14px; align-items:start; padding:16px; border:1px solid var(--border); border-radius:14px; cursor:pointer; }
+.cleanupCard.selected { border-color:var(--foreground); }
+.cleanupCard input { margin-top:3px; }
+.cleanupExample { padding:10px 12px; border-radius:8px; background:var(--background-secondary); font-size:12px; }
+.smart { margin-top:28px; }
+.smartRow { display:flex; align-items:center; justify-content:space-between; padding:13px 0; border-bottom:1px solid var(--border); }
+.aiNote { margin-top:16px; padding:12px; border-radius:10px; background:var(--accent-soft); color:var(--accent-text); font-size:13px; }
+.wizardProgress { display:flex; gap:6px; margin-bottom:18px; }
+.wizardProgress i { flex:1; height:4px; border-radius:4px; background:var(--border); }
+.wizardProgress i.done { background:var(--foreground); }
+.wizardChoices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.wizardChoice { padding:12px; text-align:left; border:1px solid var(--border); border-radius:10px; background:var(--card); color:var(--foreground); cursor:pointer; }
+.wizardChoice.selected { border-color:var(--foreground); box-shadow:0 0 0 1px var(--foreground); }
+.wizardFooter { display:flex; justify-content:space-between; width:100%; }
+.done { text-align:center; padding:28px 10px; }
+.doneIcon { display:grid; place-items:center; width:54px; height:54px; margin:0 auto 16px; border-radius:50%; background:var(--success-soft); color:var(--success); }
+@media (max-width:760px) { .toneGrid,.wizardChoices { grid-template-columns:1fr; } .cleanupCard { grid-template-columns:24px 1fr; } .cleanupExample { grid-column:2; } }

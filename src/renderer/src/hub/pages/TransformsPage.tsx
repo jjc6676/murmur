@@ -1,10 +1,5 @@
-// SCAFFOLD: replaced by its owning slice.
-import { Page, PageHeader } from '../../ui';
+import { TransformExperience } from '../transforms/TransformExperience';
 
 export function TransformsPage() {
-  return (
-    <Page>
-      <PageHeader title="Transforms" />
-    </Page>
-  );
+  return <TransformExperience />;
 }
