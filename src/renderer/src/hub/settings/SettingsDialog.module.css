@@ -210,6 +210,17 @@
 .whisperDemo { display: flex; align-items: center; gap: 16px; margin: 18px 0; padding: 18px; border-radius: 10px; background: var(--background-secondary); }
 .whisperDemo div { display: grid; gap: 4px; }
 .whisperDemo span { color: var(--foreground-secondary); font-size: 12px; }
+.whisperDemo > div:nth-child(2) { flex: 1; }
+.whisperWave { display: flex !important; align-items: center; gap: 3px; height: 34px; }
+.whisperWave i { width: 4px; height: 30%; border-radius: 2px; background: var(--accent, currentColor); animation: whisperPulse 1.2s ease-in-out infinite; }
+.whisperWave i:nth-child(2) { animation-delay: .15s; }
+.whisperWave i:nth-child(3) { animation-delay: .3s; }
+.whisperWave i:nth-child(4) { animation-delay: .45s; }
+.whisperWave i:nth-child(5) { animation-delay: .6s; }
+@keyframes whisperPulse { 0%, 100% { height: 25%; } 50% { height: 70%; } }
+@media (prefers-reduced-motion: reduce) { .whisperWave i { animation: none; } }
+.composeCard { display: grid; gap: 8px; margin: 18px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--background-secondary); }
+.composeHeader { font-weight: 600; font-size: 13px; }
 .recommendations { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
 .recommendations article { padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--background-secondary); }
 .recommendations h3 { margin: 10px 0 5px; }

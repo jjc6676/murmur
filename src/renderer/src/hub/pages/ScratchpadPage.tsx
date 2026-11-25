@@ -23,12 +23,23 @@ export function ScratchpadPage() {
   const [deleting, setDeleting] = useState<Note | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+  const refreshedLabel = (() => {
+    if (!refreshedAt) return 'Refresh notes';
+    const minutes = Math.floor(Math.max(0, clock - refreshedAt.getTime()) / 60_000);
+    return minutes < 1 ? 'Last refreshed just now' : minutes === 1 ? 'Last refreshed 1 minute ago' : minutes < 60 ? `Last refreshed ${minutes} minutes ago` : `Last refreshed ${refreshedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  })();
 
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
       setNotes(await api.notes.list({ query, limit: 100 }));
       setRefreshedAt(new Date());
+      setClock(Date.now());
     } finally {
       setRefreshing(false);
     }
@@ -81,7 +92,7 @@ export function ScratchpadPage() {
               <Search size={16} />
               <input aria-label="Search notes" placeholder="Search notes" value={query} onChange={(event) => setQuery(event.target.value)} />
             </label>
-            <IconButton label="Refresh notes" title={refreshedAt ? 'Last refreshed just now' : 'Refresh notes'} onClick={() => void load()}><RefreshCw size={17} className={refreshing ? styles.spinning : ''} /></IconButton>
+            <IconButton label="Refresh notes" title={refreshedLabel} onClick={() => void load()}><RefreshCw size={17} className={refreshing ? styles.spinning : ''} /></IconButton>
             <div className={styles.viewToggle}>
               <IconButton label="Grid view" aria-pressed={settings.notesViewType === 'grid'} onClick={() => void patchSettings({ notesViewType: 'grid' })}><Grid2X2 size={16} /></IconButton>
               <IconButton label="List view" aria-pressed={settings.notesViewType === 'list'} onClick={() => void patchSettings({ notesViewType: 'list' })}><List size={17} /></IconButton>

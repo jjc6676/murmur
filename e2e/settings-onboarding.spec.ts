@@ -195,7 +195,17 @@ test('onboarding completes and settings persist across every section', async () 
     await hub.getByRole('button', { name: 'Find the right mic for you →' }).click();
     await expect(hub.getByRole('heading', { name: 'Find the right mic for you' })).toBeVisible();
     await screenshot(hub, 'murmur-microphone-quiz.png');
-    await hub.getByRole('dialog', { name: 'Microphone quiz' }).getByRole('button', { name: 'Close' }).click();
+    const quiz = hub.getByRole('dialog', { name: 'Microphone quiz' });
+    await quiz.getByRole('button', { name: 'Show me how' }).click();
+    await quiz.getByRole('button', { name: 'Continue' }).click();
+    await quiz.getByRole('button', { name: 'Continue' }).click();
+    await expect(quiz.getByRole('heading', { name: 'Try a whisper' })).toBeVisible();
+    await expect(quiz.getByRole('button', { name: 'Unmute demo' })).toBeVisible();
+    await quiz.getByRole('button', { name: 'Try it yourself' }).click();
+    await quiz.getByLabel('Whisper practice').fill('send the project notes before lunch');
+    await quiz.getByRole('button', { name: 'See my results' }).click();
+    await expect(quiz.getByText('BEST MATCH')).toBeVisible();
+    await quiz.getByRole('button', { name: 'Close' }).click();
     await hub.getByRole('button', { name: 'Change' }).first().click();
     await hub.getByRole('button', { name: 'Add another' }).first().click();
     await hub.getByLabel('Shortcut capture').press('a');

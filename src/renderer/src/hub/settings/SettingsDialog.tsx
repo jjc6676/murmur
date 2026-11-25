@@ -15,6 +15,8 @@ import {
   SlidersHorizontal,
   User,
   Users,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 import type { AsrModelInfo, LlmProvider } from '@shared/types';
@@ -28,6 +30,7 @@ import {
   Checkbox,
   Dialog,
   Field,
+  IconButton,
   Input,
   Kbd,
   Progress,
@@ -250,6 +253,21 @@ export function MicrophoneQuizDialog() {
   const [equipment, setEquipment] = useState<string[]>([]);
   const [aroundOthers, setAroundOthers] = useState<'yes' | 'sometimes' | 'no'>('sometimes');
   const [fixedDesk, setFixedDesk] = useState(true);
+  const [demoMuted, setDemoMuted] = useState(true);
+  const [whisperExercise, setWhisperExercise] = useState(false);
+  const toggleDemoSound = () => {
+    const next = !demoMuted;
+    setDemoMuted(next);
+    window.speechSynthesis.cancel();
+    if (!next) {
+      // Local Windows speech voice plays the demo line softly; nothing leaves the machine.
+      const line = new SpeechSynthesisUtterance('Send the project notes before lunch.');
+      line.volume = 0.25;
+      line.rate = 0.9;
+      line.onend = () => setDemoMuted(true);
+      window.speechSynthesis.speak(line);
+    }
+  };
   const best = fixedDesk && aroundOthers !== 'yes' ? 'Podcast microphone' : fixedDesk ? 'Gooseneck microphone' : aroundOthers === 'yes' ? 'Headset microphone' : 'Clip-on lavalier';
   const runnerUp = best === 'Podcast microphone' ? 'Gooseneck microphone' : 'Wired headset';
   const ownedBest = equipment.some((item) => best.toLowerCase().includes(item.split(' ')[0].toLowerCase()));
@@ -258,7 +276,7 @@ export function MicrophoneQuizDialog() {
     {step === 0 && <><span className={styles.quizStep}>MICROPHONE QUIZ</span><h2>Find the right mic for you</h2><p>Hundreds of thousands of people dictate in open offices and cafés. The right microphone helps Murmur understand even a whisper.</p><p className={styles.notice}>Current microphone: {currentMic === 'default' ? 'Auto-detect' : currentMic}</p><Button onClick={() => setStep(1)}>Show me how</Button></>}
     {step === 1 && <><span className={styles.quizStep}>1 OF 4</span><h2>What equipment do you already own?</h2><p>Select all that apply.</p><div className={styles.quizChoices}>{MIC_EQUIPMENT.map((item) => <Checkbox key={item} label={item} checked={equipment.includes(item)} onChange={(checked) => setEquipment(checked ? [...equipment, item] : equipment.filter((x) => x !== item))}/>)}</div><div className={styles.quizActions}><Button variant="ghost" onClick={() => setStep(0)}>Back</Button><Button onClick={() => setStep(2)}>Continue</Button></div></>}
     {step === 2 && <><span className={styles.quizStep}>2 OF 4</span><h2>Do you work next to other people?</h2><Segmented value={aroundOthers} options={[{ value: 'yes', label: 'Yes' }, { value: 'sometimes', label: 'Sometimes' }, { value: 'no', label: 'No' }]} onChange={setAroundOthers}/><h2>Do you use the same desk every day?</h2><Segmented value={String(fixedDesk)} options={[{ value: 'true', label: 'Yes, fixed workspace' }, { value: 'false', label: 'No, I move around' }]} onChange={(value) => setFixedDesk(value === 'true')}/><div className={styles.quizActions}><Button variant="ghost" onClick={() => setStep(1)}>Back</Button><Button onClick={() => setStep(3)}>Continue</Button></div></>}
-    {step === 3 && <><span className={styles.quizStep}>3 OF 4</span><h2>Try a whisper</h2><p>Move close to your microphone and whisper naturally. Murmur works best when the mic is near your mouth and pointed away from nearby voices.</p><div className={styles.whisperDemo}><Mic size={34}/><div><strong>“Send the project notes before lunch.”</strong><span>Speak softly — no need to strain.</span></div></div><TextArea aria-label="Whisper practice" placeholder="Click here, then dictate your whisper…" rows={3}/><div className={styles.quizActions}><Button variant="ghost" onClick={() => setStep(2)}>Back</Button><Button onClick={() => setStep(4)}>See my results</Button></div></>}
+    {step === 3 && <><span className={styles.quizStep}>3 OF 4</span><h2>Try a whisper</h2><p>Move close to your microphone and whisper naturally. Murmur works best when the mic is near your mouth and pointed away from nearby voices.</p>{!whisperExercise ? <><div className={styles.whisperDemo} aria-label="Whisper demo"><div className={styles.whisperWave} aria-hidden="true"><i/><i/><i/><i/><i/></div><div><strong>“Send the project notes before lunch.”</strong><span>Whisper close to your mic… using {currentMic === 'default' ? 'Auto-detect' : 'your selected microphone'}.</span></div><IconButton label={demoMuted ? 'Unmute demo' : 'Mute demo'} onClick={toggleDemoSound}>{demoMuted ? <VolumeX size={16}/> : <Volume2 size={16}/>}</IconButton></div><div className={styles.quizActions}><Button variant="ghost" onClick={() => setStep(2)}>Back</Button><Button onClick={() => setWhisperExercise(true)}>Try it yourself</Button></div></> : <><div className={styles.composeCard} aria-label="Whisper exercise"><div className={styles.composeHeader}>New message</div><Input aria-label="To" placeholder="To" defaultValue="sam@example.com"/><Input aria-label="Subject" placeholder="Subject" defaultValue="Project notes"/><TextArea aria-label="Whisper practice" placeholder="Click here, then whisper your message…" rows={4}/></div><div className={styles.quizActions}><Button variant="ghost" onClick={() => setWhisperExercise(false)}>Back</Button><Button onClick={() => setStep(4)}>See my results</Button></div></>}</>}
     {step === 4 && <><span className={styles.quizStep}>YOUR RESULTS</span><h2>{ownedBest ? 'You’ve got a good setup' : 'Your ideal setup'}</h2><div className={styles.recommendations}><article><Badge tone="accent">BEST MATCH</Badge><h3>{best}</h3><p>{fixedDesk ? 'Excellent quality for a fixed workspace.' : 'Portable and close to your mouth for reliable whispering.'}</p></article><article><Badge>RUNNER-UP</Badge><h3>{runnerUp}</h3><p>A strong balance of speech quality, comfort, and setup.</p></article>{equipment.length > 0 && <article><Badge>WHAT YOU HAVE</Badge><h3>{equipment[0]}</h3><p>Keep using this now; place it close to your mouth for best results.</p></article>}</div><div className={styles.comparison} role="table" aria-label="Microphone comparison"><div role="row"><b>Setup</b><b>Price</b><b title="Speech detail captured by the microphone">Mic quality ⓘ</b><b title="How well it handles quiet speech">Whispering ⓘ</b><b>Around others</b><b>On the go</b></div><div role="row"><span>{best}</span><span>$$</span><span>Excellent</span><span>Excellent</span><span>{aroundOthers === 'yes' ? 'Excellent' : 'Good'}</span><span>{fixedDesk ? 'Limited' : 'Excellent'}</span></div><div role="row"><span>{runnerUp}</span><span>$</span><span>Good</span><span>Good</span><span>Good</span><span>Good</span></div></div><p className={styles.offline}>Email results is unavailable offline. Your recommendation stays on this screen only.</p><div className={styles.quizActions}><Button variant="ghost" onClick={() => setStep(0)}>Start over</Button><Button onClick={reset}>Done</Button></div></>}
   </Dialog>;
 }

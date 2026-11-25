@@ -693,7 +693,7 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
       );
     } else if (pasteOutcome?.outcome === 'unverified' && pasteOutcome.before !== null && pasteOutcome.after !== null) {
       getCtx().db.run('UPDATE history SET pastedText = NULL WHERE id = ?', entry.id);
-      showToast({ key: st.postOnboardingCompleted ? 'PasteFailed' : 'PostOnboardingFailedPaste', title: 'Click a textbox, then dictate', body: 'Your text is saved in History.', target: 'bar', tone: 'warning' });
+      showToast({ key: st.postOnboardingCompleted ? 'PasteFailed' : 'PostOnboardingFailedPaste', title: `Click a textbox and use ${shortcutLabel('pasteLast')} to paste.`, body: 'Your text is saved in History.', target: 'bar', tone: 'warning' });
     } else {
       playSound('paste');
       lastPaste = { id: entry.id, at: Date.now() };
