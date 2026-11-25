@@ -190,7 +190,7 @@ export interface MeetingsApi {
   getBrief(eventId: string): { title: string; content: string };
   rateSummary(id: string, rating: 'up' | 'down' | null, note?: string): void;
   summaryVersions(id: string): { id: string; source: string; createdAt: string; summary: Meeting['summary'] }[];
-  translateSummary(id: string, language: string): { summary: Meeting['summary']; language: string; sourceGeneratedAt: string };
+  translateSummary(id: string, language: string): { summary: Meeting['summary']; language: string; sourceGeneratedAt: string; createdAt: string };
   summaryTranslations(id: string): { language: string; sourceGeneratedAt: string; createdAt: string; summary: Meeting['summary'] }[];
 }
 

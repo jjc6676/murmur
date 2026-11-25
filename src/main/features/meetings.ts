@@ -23,7 +23,7 @@ function ensureChatSession(meetingId: string): MeetingChatSession {
   if (existing) return existing;
   const createdAt = nowIso();
   const session: MeetingChatSession = { id: newId(), meetingId, title: 'New chat', createdAt, updatedAt: createdAt };
-  getCtx().db.insert('meeting_chat_sessions', session);
+  getCtx().db.insert('meeting_chat_sessions', { ...session });
   getCtx().db.run("UPDATE meeting_chat SET sessionId = ? WHERE meetingId = ? AND sessionId = ''", session.id, meetingId);
   return session;
 }
@@ -398,7 +398,7 @@ export function registerMeetings(): void {
       requireMeeting(id);
       const timestamp = nowIso();
       const session: MeetingChatSession = { id: newId(), meetingId: id, title: title.trim() || 'New chat', createdAt: timestamp, updatedAt: timestamp };
-      getCtx().db.insert('meeting_chat_sessions', session);
+      getCtx().db.insert('meeting_chat_sessions', { ...session });
       return session;
     },
     renameChatSession(id, sessionId, title) {
@@ -452,7 +452,7 @@ export function registerMeetings(): void {
       const message = getCtx().db.get<{ content: string }>('SELECT content FROM meeting_chat WHERE id = ? AND meetingId = ? AND role = ?', messageId, id, 'assistant');
       if (!message) throw new Error('Chat response not found');
       const artifact: MeetingArtifact = { id: newId(), meetingId: id, title: title.trim() || 'Artifact', content: message.content, createdAt: nowIso() };
-      getCtx().db.insert('meeting_artifacts', artifact);
+      getCtx().db.insert('meeting_artifacts', { ...artifact });
       broadcast('meetings:changed', { id });
       return artifact;
     },
