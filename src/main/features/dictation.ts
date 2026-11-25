@@ -591,7 +591,7 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
   const app = { processName: s.target.processName, title: s.target.title };
   const context = await s.context;
   const contextText = context.text;
-  const formatted = await formatForApp(asrText, app, { contextText });
+  const formatted = await formatForApp(asrText, app, { contextText, appUrl: context.url });
   let finalText = formatted.text;
   // Auto Apply After Dictation: run the selected transform before pasting.
   if (st.transformsEnabled && st.autoApplyAfterDictation.active && finalText) {

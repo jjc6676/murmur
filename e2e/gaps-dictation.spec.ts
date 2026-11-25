@@ -27,8 +27,9 @@ test('rich snippets retain HTML with a plain-text formatting fallback', async ()
   }
 });
 
-test('voice profiles apply their own cleanup level', async () => {
-  const { app, hub } = await launchApp({ settings: { cleanupLevel: 'light', styles: { work: { cleanupLevel: 'none' } } } });
+test('custom voice profiles override built-in app cleanup', async () => {
+  const now = new Date().toISOString();
+  const { app, hub } = await launchApp({ settings: { cleanupLevel: 'light', customStyles: [{ id: 'slack-brief', name: 'Slack brief', tone: 'casual', cleanupLevel: 'none', instructions: 'Keep it brief.', apps: ['slack'], createdAt: now, modifiedAt: now }] } });
   try {
     expect(await invoke<string>(hub, 'dictation:formatText', 'um hello there', 'slack')).toBe('um hello there');
     expect(await invoke<string>(hub, 'dictation:formatText', 'um hello there', 'notepad')).toBe('Hello there.');
