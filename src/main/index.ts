@@ -27,7 +27,8 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(() => {
     const ctx = initContext();
     // microphone + system-audio loopback for the hidden capture window
-    session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media' || permission === 'clipboard-read' || permission === 'clipboard-sanitized-write'));
+    const ALLOWED: Record<string, true> = { media: true, 'display-capture': true, 'clipboard-read': true, 'clipboard-sanitized-write': true };
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(ALLOWED[permission] === true));
     session.defaultSession.setDisplayMediaRequestHandler((_req, cb) => {
       // system audio (loopback) for Notetaker; Windows requires a video source alongside, the renderer drops the video track
       void desktopCapturer.getSources({ types: ['screen'] }).then((sources) => cb({ video: sources[0], audio: 'loopback' }));

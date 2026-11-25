@@ -145,7 +145,8 @@ export async function startRecording(opts: { title?: string; calendarEventId?: s
   session = current;
   setContentProtectionForMeeting(settings.notetaker.hideInScreenCapture);
   setState({ phase: 'recording', meetingId, startedAt: current.startedAt, elapsedSec: 0, micLevel: 0, systemLevel: 0, liveSegments: [], error: null });
-  ensureCapture().webContents.send('evt:capture:command', { kind: 'meeting', action: 'start', deviceId: settings.micDeviceId });
+  // userGesture=true grants the transient activation getDisplayMedia (system audio loopback) requires
+  void ensureCapture().webContents.executeJavaScript(`window.murmurStartMeeting(${JSON.stringify(settings.micDeviceId)})`, true);
   if (settings.notetaker.notepadView !== 'hidden') ensureRecorder();
   broadcast('meetings:changed', { id: meetingId });
   return state;

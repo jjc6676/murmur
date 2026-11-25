@@ -69,7 +69,7 @@ export class WhisperServer {
     if (!existsSync(exe)) throw new Error(`whisper-server not found at ${exe}`);
     if (!modelPath) throw new Error(`speech model "${model}" is not installed`);
     this.port = await freePort();
-    const proc = spawn(exe, ['-m', modelPath, '--host', '127.0.0.1', '--port', String(this.port), '-t', String(threads), '-nt'], {
+    const proc = spawn(exe, ['-m', modelPath, '--host', '127.0.0.1', '--port', String(this.port), '-t', String(threads)], {
       cwd: this.paths.binDir,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -125,11 +125,13 @@ export class WhisperServer {
   }
 }
 
-/** Strip whisper artefacts: bracketed non-speech tags, leading/trailing whitespace, doubled spaces. */
+/** Strip whisper artefacts: non-speech annotations like "[BLANK_AUDIO]", "(drum music)", "*laughs*", and extra whitespace. */
 export function cleanWhisperText(t: string): string {
   return t
-    .replace(/\[(BLANK_AUDIO|MUSIC|NOISE|SILENCE|INAUDIBLE|Music|Applause|Laughter)[^\]]*\]/gi, '')
-    .replace(/\((music|silence|noise|inaudible|applause|laughter)[^)]*\)/gi, '')
+    .replace(/\[[^\]\n]{1,40}\]/g, '')
+    .replace(/\([^)\n]{1,40}\)/g, '')
+    .replace(/\*[^*\n]{1,30}\*/g, '')
+    .replace(/♪[^♪\n]*♪?/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }

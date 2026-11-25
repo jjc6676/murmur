@@ -112,24 +112,38 @@ async function stopDictation(): Promise<void> {
 // ------------------------------------------------------------------ meeting
 let meeting: { mic: Tap | null; system: Tap | null; paused: boolean } | null = null;
 
-async function startMeeting(deviceId: string): Promise<void> {
+/**
+ * getDisplayMedia (system loopback) needs transient user activation, so main invokes this through
+ * executeJavaScript(..., userGesture=true) and the call is issued synchronously before any await.
+ */
+function startMeeting(deviceId: string): void {
   if (meeting) return;
   meeting = { mic: null, system: null, paused: false };
   const m = meeting;
   const push = (source: 'mic' | 'system') => (buf: ArrayBuffer, level: number) => {
-    if (!m.paused) void api.recorder.pushAudio(source, buf, level);
+    if (!m.paused && meeting === m) void api.recorder.pushAudio(source, buf, level);
   };
-  try {
-    m.mic = await tapStream(await openMic(deviceId), push('mic'));
-  } catch (e) {
-    console.error('meeting mic failed', e);
-  }
-  try {
-    m.system = await tapStream(await openSystemAudio(), push('system'));
-  } catch (e) {
-    console.error('meeting system audio failed', e);
+  const system = openSystemAudio();
+  void (async () => {
+    try {
+      m.mic = await tapStream(await openMic(deviceId), push('mic'));
+    } catch (e) {
+      console.error('meeting mic failed', e);
+    }
+    try {
+      m.system = await tapStream(await system, push('system'));
+    } catch (e) {
+      console.error('meeting system audio failed', e);
+    }
+  })();
+}
+
+declare global {
+  interface Window {
+    murmurStartMeeting(deviceId: string): void;
   }
 }
+window.murmurStartMeeting = startMeeting;
 
 async function stopMeeting(): Promise<void> {
   const m = meeting;
@@ -146,7 +160,7 @@ onEvent('capture:command', (cmd) => {
     else if (cmd.action === 'stop') void stopDictation();
     return;
   }
-  if (cmd.action === 'start') void startMeeting(cmd.deviceId);
+  if (cmd.action === 'start') startMeeting(cmd.deviceId);
   else if (cmd.action === 'stop') void stopMeeting();
   else if (meeting) meeting.paused = cmd.action === 'pause';
 });
