@@ -29,7 +29,8 @@ export function resolveCli(name: string): ResolvedCommand | null {
   const shim = findOnPath([`${name}.cmd`]);
   if (!shim) return null;
   const text = readFileSync(shim, 'utf8');
-  const target = /"%dp0%\\([^"]+?\.(exe|js|cjs|mjs))"/i.exec(text);
+  // npm shims mention "%dp0%\node.exe" (the optional bundled node) before the real target script.
+  const target = [...text.matchAll(/"%dp0%\\([^"]+?\.(exe|js|cjs|mjs))"/gi)].find((m) => !/^node\.exe$/i.test(m[1]));
   if (!target) return null;
   const full = join(dirname(shim), target[1]);
   if (target[2].toLowerCase() === 'exe') return { command: full, prefixArgs: [] };

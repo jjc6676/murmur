@@ -27,4 +27,6 @@ export interface MurmurEvents {
   'capture:command': { kind: 'dictation' | 'meeting'; action: 'start' | 'stop' | 'pause' | 'resume'; deviceId: string };
   'diff:show': { before: string; after: string; title: string };
   'sound:play': { name: 'start' | 'stop' | 'paste' | 'notification' | 'achievement' };
+  /** Main's cursor hit test says the pointer is over (or left) the Flow Bar's controls. */
+  'status:hover': { inside: boolean };
 }

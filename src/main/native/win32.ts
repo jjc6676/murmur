@@ -133,6 +133,21 @@ export function focusWindow(hwnd: bigint | number | null): void {
   SetForegroundWindowAddr(hwnd);
 }
 
+koffi.struct('RECT', { left: 'long', top: 'long', right: 'long', bottom: 'long' });
+const GetWindowRectAddr = user32.func('bool __stdcall GetWindowRect(intptr_t hWnd, _Out_ RECT* lpRect)');
+const GetForegroundWindowAddr = user32.func('intptr_t __stdcall GetForegroundWindow()');
+
+/** Physical-pixel bounds of the foreground window, or null when there is none / it is minimized. */
+export function getForegroundWindowRect(): { x: number; y: number; width: number; height: number } | null {
+  const hwnd = GetForegroundWindowAddr();
+  if (!hwnd || IsIconicAddr(hwnd)) return null;
+  const rect = { left: 0, top: 0, right: 0, bottom: 0 };
+  if (!GetWindowRectAddr(hwnd, rect)) return null;
+  const width = rect.right - rect.left;
+  const height = rect.bottom - rect.top;
+  return width > 0 && height > 0 ? { x: rect.left, y: rect.top, width, height } : null;
+}
+
 /** Visible top-level windows whose title contains `needle` (case-insensitive). */
 export function findWindows(needle: string): { hwnd: bigint | number; title: string }[] {
   const out: { hwnd: bigint | number; title: string }[] = [];

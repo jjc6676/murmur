@@ -3,6 +3,8 @@ import { BrowserWindow, ipcMain, nativeTheme, screen, shell } from 'electron';
 import { join } from 'node:path';
 import { getCtx } from './context';
 import { paths } from './paths';
+import { getForegroundWindowRect } from './native/win32';
+import { eventChannel } from '@shared/ipc';
 
 export type WindowKind = 'hub' | 'status' | 'scratchpad' | 'recorder' | 'capture';
 
@@ -90,17 +92,65 @@ export function ensureStatus(): BrowserWindow {
   positionStatus();
   load(win, 'status');
   win.once('ready-to-show', () => win?.showInactive());
+  startStatusTracking(win);
   return win;
 }
 
-export function positionStatus(): void {
+/** Display the user is working on: the one holding the foreground window, else the one under the cursor. */
+function activeDisplay(): Electron.Display {
+  const rect = process.platform === 'win32' ? getForegroundWindowRect() : null;
+  if (rect) return screen.getDisplayMatching(screen.screenToDipRect(null, rect));
+  return screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+}
+
+let statusDisplayId: number | null = null;
+
+export function positionStatus(display = activeDisplay()): void {
   const win = getWindow('status');
   if (!win) return;
+  statusDisplayId = display.id;
   const dock = getCtx().settings.get().flowBarDock;
-  const area = screen.getPrimaryDisplay().workArea;
+  const area = display.workArea;
   if (dock === 'left') win.setBounds({ x: area.x + 8, y: Math.round(area.y + area.height / 2 - STATUS_H / 2), width: STATUS_W, height: STATUS_H });
   else if (dock === 'right') win.setBounds({ x: area.x + area.width - STATUS_W - 8, y: Math.round(area.y + area.height / 2 - STATUS_H / 2), width: STATUS_W, height: STATUS_H });
   else win.setBounds({ x: Math.round(area.x + area.width / 2 - STATUS_W / 2), y: area.y + area.height - STATUS_H, width: STATUS_W, height: STATUS_H });
+}
+
+// Flow bar hit testing. The window is transparent and click-through; the renderer reports the rectangles of its
+// visible controls (pill, toasts, menu) and main polls the cursor, turning click-through off only over them.
+// Polling replaces Electron's `forward` hover detection, whose low-level mouse hook Windows can silently drop.
+type HitRect = { x: number; y: number; width: number; height: number };
+let statusHitRects: HitRect[] = [];
+let statusForceInteractive = false;
+let statusInteractive = false;
+const HIT_POLL_MS = 50;
+const DISPLAY_POLL_MS = 500;
+
+function startStatusTracking(win: BrowserWindow): void {
+  let lastDisplayCheck = 0;
+  const timer = setInterval(() => {
+    if (win.isDestroyed()) return clearInterval(timer);
+    if (!win.isVisible()) return;
+    const now = Date.now();
+    // Follow the display the user is working on (not while they are interacting with the bar itself).
+    if (!statusInteractive && now - lastDisplayCheck >= DISPLAY_POLL_MS) {
+      lastDisplayCheck = now;
+      const display = activeDisplay();
+      if (display.id !== statusDisplayId) positionStatus(display);
+    }
+    const cursor = screen.getCursorScreenPoint();
+    const bounds = win.getBounds();
+    // Renderer reports rects in physical pixels (CSS px × devicePixelRatio), independent of the hub zoom level.
+    const scale = screen.getDisplayMatching(bounds).scaleFactor;
+    const x = (cursor.x - bounds.x) * scale;
+    const y = (cursor.y - bounds.y) * scale;
+    const inside = statusForceInteractive || statusHitRects.some((r) => x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height);
+    if (inside !== statusInteractive) {
+      statusInteractive = inside;
+      win.setIgnoreMouseEvents(!inside, { forward: true });
+      win.webContents.send(eventChannel('status:hover'), { inside });
+    }
+  }, HIT_POLL_MS);
 }
 
 export function ensureScratchpad(show = true): BrowserWindow {
@@ -158,7 +208,10 @@ export function setContentProtectionForMeeting(on: boolean): void {
   for (const k of ['recorder', 'status'] as const) getWindow(k)?.setContentProtection(on);
 }
 
-// Flow bar hover: renderer toggles click-through so the bar is clickable but the rest stays transparent.
+ipcMain.on('status:hitRects', (_e, rects: HitRect[]) => {
+  statusHitRects = Array.isArray(rects) ? rects : [];
+});
+// Context menu open: keep the whole bar window interactive so the menu can be used.
 ipcMain.on('status:interactive', (_e, interactive: boolean) => {
-  getWindow('status')?.setIgnoreMouseEvents(!interactive, { forward: true });
+  statusForceInteractive = interactive;
 });

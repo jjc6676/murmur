@@ -67,11 +67,31 @@ export function FlowBar() {
     if (menu) void api.engines.listAudioDevices().then(setDevices);
   }, [menu]);
 
-  // Click-through everywhere except over interactive content.
-  const interactive = hover || menu;
+  // Main hit-tests the cursor against these rectangles (physical px) and toggles click-through; it reports
+  // hover back via `status:hover`, which works even when the window never receives OS mouse-move events.
+  useEvent('status:hover', ({ inside }) => setHover(inside));
   useEffect(() => {
-    sendRaw('status:interactive', interactive);
-  }, [interactive]);
+    let last = '';
+    const report = () => {
+      const ratio = window.devicePixelRatio;
+      const rects = [...(rootRef.current?.querySelectorAll('[data-hit]') ?? [])].map((el) => {
+        const r = el.getBoundingClientRect();
+        return { x: Math.round((r.x - 4) * ratio), y: Math.round((r.y - 4) * ratio), width: Math.round((r.width + 8) * ratio), height: Math.round((r.height + 8) * ratio) };
+      });
+      const json = JSON.stringify(rects);
+      if (json !== last) {
+        last = json;
+        sendRaw('status:hitRects', rects);
+      }
+    };
+    report();
+    const timer = setInterval(report, 120); // also catches CSS transitions of the expanding pill
+    return () => clearInterval(timer);
+  }, []);
+  // The context menu keeps the whole window interactive while open.
+  useEffect(() => {
+    sendRaw('status:interactive', menu);
+  }, [menu]);
 
   const phase = st?.phase ?? 'resting';
   const active = phase === 'active_ptt' || phase === 'active_popo';
@@ -87,7 +107,7 @@ export function FlowBar() {
     <div className={s.root} ref={rootRef}>
       <div className={s.toasts}>
         {toasts.map((t) => (
-          <div key={t.id} className={cx(s.toast, t.tone && s[`tone_${t.tone}`])} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} role="status">
+          <div key={t.id} data-hit className={cx(s.toast, t.tone && s[`tone_${t.tone}`])} role="status">
             <div className={s.toastText}>
               <strong>{t.title}</strong>
               {t.body && <span>{t.body}</span>}
@@ -109,7 +129,7 @@ export function FlowBar() {
       </div>
 
       {menu && (
-        <div className={s.menu} role="menu" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+        <div className={s.menu} data-hit role="menu">
           <div className={s.menuSection}>Microphone</div>
           {visibleDevices.map((device) => (
             <button key={device.deviceId} type="button" role="menuitemradio" aria-checked={settings.micDeviceId === device.deviceId} onClick={() => void api.settings.patch({ micDeviceId: device.deviceId })}>
@@ -168,9 +188,10 @@ export function FlowBar() {
 
       {active && settings.creatorMode && <div className={s.creator}>Dictating with Murmur</div>}
       <div
-        className={cx(s.pill, expanded && s.pillExpanded, active && s.pillActive, done && s.pillDone, phase === 'error' && s.pillError)}
+        data-hit
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
+        className={cx(s.pill, expanded && s.pillExpanded, active && s.pillActive, done && s.pillDone, phase === 'error' && s.pillError)}
         onContextMenu={(e) => {
           e.preventDefault();
           setMenu((m) => !m);
@@ -206,14 +227,19 @@ export function FlowBar() {
         )}
         {phase === 'error' && <span className={s.label}>{st?.message ?? 'Something went wrong'}</span>}
         {!active && !busy && !done && phase !== 'error' && hover && (
-          <button
-            type="button"
-            className={s.hint}
-            onClick={() => st?.message === 'Voice-to-text disabled' ? void api.app.openSettings('experimental') : void api.dictation.start('popo')}
-            title={st?.message === 'Voice-to-text disabled' ? 'Voice-to-text is disabled for this app' : 'Click to start hands-free dictation'}
-          >
-            {st?.message === 'Voice-to-text disabled' ? 'Voice-to-text disabled' : ptt ? <>Hold <Kbd combo={ptt} /> to dictate</> : 'Click to dictate'}
-          </button>
+          <>
+            <button
+              type="button"
+              className={s.hint}
+              onClick={() => st?.message === 'Voice-to-text disabled' ? void api.app.openSettings('experimental') : void api.dictation.start('popo')}
+              title={st?.message === 'Voice-to-text disabled' ? 'Voice-to-text is disabled for this app' : 'Click to start hands-free dictation'}
+            >
+              {st?.message === 'Voice-to-text disabled' ? 'Voice-to-text disabled' : ptt ? <>Hold <Kbd combo={ptt} /> to dictate</> : 'Click to dictate'}
+            </button>
+            <button type="button" className={s.pillBtn} aria-label="Start Notetaker" title="Start Notetaker" onClick={() => void api.recorder.start()}>
+              <NotebookPen size={14} />
+            </button>
+          </>
         )}
       </div>
     </div>
