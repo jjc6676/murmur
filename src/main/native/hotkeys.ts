@@ -48,10 +48,10 @@ export class HotkeyManager extends EventEmitter<Events> {
     uIOhook.on('mousedown', (e) => {
       if (typeof e.button !== 'number' || e.button <= 3) return;
       this.emit('mouse', e.button);
-      this.onInput(`Mouse ${e.button}`, true);
+      this.onInput(e.button === 11 ? 'Aux Button' : `Mouse ${e.button}`, true);
     });
     uIOhook.on('mouseup', (e) => {
-      if (typeof e.button === 'number' && e.button > 3) this.onInput(`Mouse ${e.button}`, false);
+      if (typeof e.button === 'number' && e.button > 3) this.onInput(e.button === 11 ? 'Aux Button' : `Mouse ${e.button}`, false);
     });
     uIOhook.start();
   }

@@ -49,6 +49,7 @@ export interface Settings {
   shortcuts: Record<ShortcutAction, string[]>;
   micDeviceId: string; // 'default' = auto-detect
   micRanking: string[]; // device labels in preference order
+  micForgottenDeviceIds: string[];
   languages: string[]; // ISO codes
   autoDetectLanguage: boolean;
   hinglishEnabled: boolean;
@@ -67,7 +68,7 @@ export interface Settings {
   muteAudioWhileDictating: boolean;
   pauseMediaWhileDictating: boolean;
   notifications: { suggestions: boolean; announcements: boolean; milestones: boolean; processingDelay: boolean };
-  typingReminder: { mode: TypingReminderMode; categories: string[]; mutedUntil: number };
+  typingReminder: { mode: TypingReminderMode; categories: string[]; mutedUntil: number; appearance: 'compact' | 'expanded' };
   scratchpadOpenBehavior: ScratchpadOpenBehavior;
   autoAddToDictionary: boolean;
   creatorMode: boolean;
@@ -77,7 +78,7 @@ export interface Settings {
   // dictation / AI
   cleanupLevel: CleanupLevel;
   smartFormatting: { lists: boolean; backtrack: boolean; emails: boolean; spokenPunctuation: boolean };
-  styles: Record<StyleContext, { tone: StyleTone; apps: string[]; instructions?: string }>;
+  styles: Record<StyleContext, { tone: StyleTone; apps: string[]; instructions?: string; cleanupLevel: CleanupLevel }>;
   personalizationComplete: boolean;
   transformsEnabled: boolean;
   transformAutoPaste: boolean;
@@ -242,6 +243,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   micDeviceId: 'default',
   micRanking: [],
+  micForgottenDeviceIds: [],
   languages: ['en'],
   autoDetectLanguage: false,
   hinglishEnabled: false,
@@ -259,7 +261,7 @@ export const DEFAULT_SETTINGS: Settings = {
   muteAudioWhileDictating: true,
   pauseMediaWhileDictating: false,
   notifications: { suggestions: true, announcements: true, milestones: true, processingDelay: true },
-  typingReminder: { mode: 'disabled', categories: [], mutedUntil: 0 },
+  typingReminder: { mode: 'disabled', categories: [], mutedUntil: 0, appearance: 'compact' },
   scratchpadOpenBehavior: 'resume',
   autoAddToDictionary: true,
   creatorMode: false,
@@ -269,10 +271,10 @@ export const DEFAULT_SETTINGS: Settings = {
   cleanupLevel: 'light',
   smartFormatting: { lists: true, backtrack: true, emails: true, spokenPunctuation: true },
   styles: {
-    work: { tone: 'formal', apps: DEFAULT_STYLE_APPS.work, instructions: '' },
-    email: { tone: 'formal', apps: DEFAULT_STYLE_APPS.email, instructions: '' },
-    personal: { tone: 'formal', apps: DEFAULT_STYLE_APPS.personal, instructions: '' },
-    other: { tone: 'formal', apps: [], instructions: '' },
+    work: { tone: 'formal', apps: DEFAULT_STYLE_APPS.work, instructions: '', cleanupLevel: 'light' },
+    email: { tone: 'formal', apps: DEFAULT_STYLE_APPS.email, instructions: '', cleanupLevel: 'light' },
+    personal: { tone: 'formal', apps: DEFAULT_STYLE_APPS.personal, instructions: '', cleanupLevel: 'light' },
+    other: { tone: 'formal', apps: [], instructions: '', cleanupLevel: 'light' },
   },
   personalizationComplete: false,
   transformsEnabled: true,
@@ -284,7 +286,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pressEnterCommandEnabled: false,
   stackedMessages: false,
   focusMode: { enabled: false, blockedApps: ['slack', 'superhuman'], blockedUrls: ['slack.com', 'mail.google.com', 'superhuman.com', 'x.com', 'twitter.com'] },
-  mouseFlow: { dictateButton: null, enterButton: null },
+  mouseFlow: { dictateButton: 4, enterButton: 5 },
   vibeCoding: { variableRecognition: false, fileTagging: true },
   cursorIdeIntegration: false,
   jabraWearDetectionEnabled: false,

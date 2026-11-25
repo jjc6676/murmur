@@ -109,7 +109,7 @@ function GeneralSection({ s, patch }: SectionProps) {
         <SettingRow title="Shortcuts" description={<>Hold <Kbd combo={s.shortcuts.ptt[0] ?? 'Not set'} /> and speak.</>}>
           <Button variant="outline" size="sm" onClick={() => setSection('shortcuts')}>Change</Button>
         </SettingRow>
-        <SettingRow title="Mouse Flow" description="Set up side buttons 4 and 5 for Dictate and Enter.">
+        <SettingRow title="Mouse Flow" description="Side buttons replace Back and Forward: Dictate starts or stops hands-free dictation; Enter sends your message.">
           <MouseSetup s={s} patch={patch} />
         </SettingRow>
         <SettingRow title="Microphone" description={s.micDeviceId === 'default' ? 'Auto-detect' : s.micDeviceId}>
@@ -122,6 +122,11 @@ function GeneralSection({ s, patch }: SectionProps) {
         <SettingRow title="Hinglish" description="Write spoken Hindi using Latin letters.">
           <Toggle label="Hinglish" checked={s.hinglishEnabled} onChange={(hinglishEnabled) => void patch({ hinglishEnabled })} />
         </SettingRow>
+        {(['work', 'email', 'personal', 'other'] as const).map((context) => (
+          <SettingRow key={context} title={`${context[0].toUpperCase()}${context.slice(1)} cleanup`} description="Cleanup level for this voice profile.">
+            <Select value={s.styles[context].cleanupLevel ?? s.cleanupLevel} options={[{ value: 'none', label: 'None' }, { value: 'light', label: 'Light' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }]} onChange={(cleanupLevel) => void patch({ styles: { ...s.styles, [context]: { ...s.styles[context], cleanupLevel } } })} />
+          </SettingRow>
+        ))}
         <SettingRow title="App Language" description="Select your preferred Murmur Hub language">
           <Select value={s.appLanguage ?? 'system'} options={[{ value: 'system', label: 'System default' }, { value: 'en', label: 'English' }]} onChange={(v) => void patch({ appLanguage: v === 'system' ? null : v })} />
         </SettingRow>
@@ -143,14 +148,31 @@ function GeneralSection({ s, patch }: SectionProps) {
 
 function MouseSetup({ s, patch }: SectionProps) {
   const [open, setOpen] = useState(false);
-  const [tested, setTested] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const buttons = [4, 5, 6, 7, 8, 9, 10, 11].map((value) => ({ value, label: value === 11 ? 'Aux Button' : `Mouse ${value}` }));
+  const test = async (kind: 'dictateButton' | 'enterButton') => {
+    setStatus(`Press the side button for ${kind === 'dictateButton' ? 'Dictate' : 'Enter'}…`);
+    try {
+      const combo = await api.settings.recordShortcut();
+      const match = /^(?:Mouse )?(\d+)$/.exec(combo);
+      const button = combo === 'Aux Button' ? 11 : match ? Number(match[1]) : 0;
+      if (button < 4 || button > 11) {
+        setStatus('That was not a supported mouse button. Use Mouse 4–10 or Aux Button.');
+        return;
+      }
+      await patch({ mouseFlow: { ...s.mouseFlow, [kind]: button } });
+      setStatus(`${button === 11 ? 'Aux Button' : `Mouse ${button}`} detected.`);
+    } catch {
+      setStatus('Button test cancelled.');
+    }
+  };
+  const close = () => { api.settings.cancelRecordShortcut(); setOpen(false); setStatus(null); };
   return <>
     <Button variant="outline" size="sm" onClick={() => setOpen(true)}>Set up</Button>
-    <Dialog open={open} onClose={() => setOpen(false)} title="Set up Mouse Flow" description="Map your mouse side buttons. This replaces their usual back and forward behavior." footer={<Button onClick={() => setOpen(false)}>Done</Button>}>
-      <SettingRow title="Button 4 — Dictate"><Toggle label="Use button 4 to dictate" checked={s.mouseFlow.dictateButton === 4} onChange={(v) => void patch({ mouseFlow: { ...s.mouseFlow, dictateButton: v ? 4 : null } })} /></SettingRow>
-      <SettingRow title="Button 5 — Enter"><Toggle label="Use button 5 for Enter" checked={s.mouseFlow.enterButton === 5} onChange={(v) => void patch({ mouseFlow: { ...s.mouseFlow, enterButton: v ? 5 : null } })} /></SettingRow>
-      <Button variant="outline" onClick={() => setTested(true)}>Test side buttons</Button>
-      {tested && <p role="status">Ready — press either side button now.</p>}
+    <Dialog open={open} onClose={close} title="Set up Mouse Flow" description="These mappings replace the buttons’ usual Back and Forward behavior." footer={<><Button variant="ghost" onClick={() => { void patch({ mouseFlow: { dictateButton: 4, enterButton: 5 } }); setStatus('Mouse Flow reset to defaults.'); }}>Reset</Button><Button variant="outline" onClick={close}>Not now</Button><Button onClick={() => { toast('Mouse Flow setup complete!'); close(); }}>Done</Button></>}>
+      <SettingRow title="Dictate" description="Click to start, click again to stop."><div className={styles.inline}><Select value={s.mouseFlow.dictateButton ?? 4} options={buttons} onChange={(dictateButton) => void patch({ mouseFlow: { ...s.mouseFlow, dictateButton } })}/><Button variant="outline" onClick={() => void test('dictateButton')}>Test</Button></div></SettingRow>
+      <SettingRow title="Enter" description="Sends your message."><div className={styles.inline}><Select value={s.mouseFlow.enterButton ?? 5} options={buttons} onChange={(enterButton) => void patch({ mouseFlow: { ...s.mouseFlow, enterButton } })}/><Button variant="outline" onClick={() => void test('enterButton')}>Test</Button></div></SettingRow>
+      {status && <p role="status">{status}</p>}
     </Dialog>
   </>;
 }
@@ -158,6 +180,7 @@ function MouseSetup({ s, patch }: SectionProps) {
 function MicrophoneDialog({ open, onClose, s, patch }: SectionProps & { open: boolean; onClose: () => void }) {
   const [devices, setDevices] = useState<{ deviceId: string; label: string }[]>([]);
   const [level, setLevel] = useState(0);
+  const [showOther, setShowOther] = useState(false);
   useEffect(() => {
     if (!open) return;
     void api.engines.listAudioDevices().then(setDevices);
@@ -178,19 +201,22 @@ function MicrophoneDialog({ open, onClose, s, patch }: SectionProps & { open: bo
     }).catch(() => setLevel(0));
     return () => { cancelAnimationFrame(frame); stream?.getTracks().forEach((track) => track.stop()); };
   }, [open]);
-  const ranked = devices.length ? devices : [{ deviceId: 'default-mic', label: 'Default microphone' }];
-  return <Dialog open={open} onClose={onClose} title="Microphone" description="Notetaker always uses Auto-detect." footer={<Button onClick={onClose}>Done</Button>}>
+  const available = (devices.length ? devices : [{ deviceId: 'default-mic', label: 'Default microphone' }]).filter((device) => !s.micForgottenDeviceIds.includes(device.deviceId));
+  const ranked = available.filter((device) => showOther || !/(virtual|loopback|stereo mix|voicemeeter|cable|system audio)/i.test(device.label));
+  const hiddenCount = available.length - ranked.length;
+  return <Dialog open={open} onClose={onClose} title="Microphone" description="Notetaker always uses Auto-detect." footer={<Button onClick={onClose}>Done Editing</Button>}>
     <Field label="Input device"><Select value={s.micDeviceId} options={[{ value: 'default', label: 'Auto-detect' }, ...ranked.map((d) => ({ value: d.deviceId, label: d.label || 'Microphone' }))]} onChange={(micDeviceId) => void patch({ micDeviceId })} /></Field>
     <div className={styles.meter} aria-label={`Microphone level ${Math.round(level)} percent`}><span style={{ width: `${level}%` }} /></div>
     <h3>Microphone ranking</h3>
     <p className={styles.muted}>Drag order determines which microphone Auto-detect tries first.</p>
     <ol className={styles.rankList}>{ranked.map((d, index) => <li key={d.deviceId} draggable onDragStart={(e) => e.dataTransfer.setData('text/plain', String(index))} onDragOver={(e) => e.preventDefault()} onDrop={(e) => {
       const from = Number(e.dataTransfer.getData('text/plain'));
-      const labels = ranked.map((x) => x.label);
+      const labels = ranked.map((device) => device.label);
       const [moved] = labels.splice(from, 1);
       labels.splice(index, 0, moved);
       void patch({ micRanking: labels });
-    }}>{d.label || 'Microphone'}</li>)}</ol>
+    }}><span>{d.label || 'Microphone'}</span><Button variant="ghost" size="sm" onClick={() => void patch({ micForgottenDeviceIds: [...s.micForgottenDeviceIds, d.deviceId], ...(s.micDeviceId === d.deviceId ? { micDeviceId: 'default' } : {}) })}>Forget</Button></li>)}</ol>
+    {hiddenCount > 0 && <Button variant="ghost" onClick={() => setShowOther((value) => !value)}>{showOther ? 'Hide' : 'Show'} other devices ({hiddenCount})</Button>}
     <p className={styles.advisory}>Built-in or wired microphones are recommended. AirPods and Bluetooth headsets can start slowly and produce more errors.</p>
   </Dialog>;
 }
@@ -245,6 +271,7 @@ function ShortcutsSection({ s }: SectionProps) {
     await api.settings.setShortcut(action, [...s.shortcuts[action], combo]);
     setCapturing(false);
     setError(null);
+    toast('Shortcut saved.');
   };
   const beginCapture = (action: ShortcutAction) => {
     setEditing(action); setCapturing(true); setError(null);
@@ -293,6 +320,7 @@ function SystemSection({ s, patch }: SectionProps) {
     </SettingGroup>
     <SettingGroup title="Dictation reminder">
       <SettingRow title="Where reminders appear"><Select value={s.typingReminder.mode} options={[{ value: 'disabled', label: 'Disabled' }, { value: 'all', label: 'All apps' }, { value: 'previously_used', label: 'Previously used apps' }, { value: 'categories', label: 'Selected categories' }]} onChange={(mode) => void patch({ typingReminder: { ...s.typingReminder, mode } })} /></SettingRow>
+      <SettingRow title="Reminder appearance"><Segmented value={s.typingReminder.appearance ?? 'compact'} options={[{ value: 'compact', label: 'Compact' }, { value: 'expanded', label: 'Expanded' }]} onChange={(appearance) => void patch({ typingReminder: { ...s.typingReminder, appearance } })} /></SettingRow>
       {s.typingReminder.mode === 'categories' && <SettingRow title="Categories"><div>{['AI', 'Documents & notes', 'Email', 'Personal messaging', 'Work messaging'].map((label) => <Checkbox key={label} label={label} checked={s.typingReminder.categories.includes(label)} onChange={(v) => void patch({ typingReminder: { ...s.typingReminder, categories: v ? [...s.typingReminder.categories, label] : s.typingReminder.categories.filter((x) => x !== label) } })} />)}</div></SettingRow>}
       <SettingRow title="Mute reminders for 12 hours"><Button variant="outline" size="sm" onClick={() => void patch({ typingReminder: { ...s.typingReminder, mutedUntil: Date.now() + 43_200_000 } })}>Mute 12h</Button></SettingRow>
     </SettingGroup>

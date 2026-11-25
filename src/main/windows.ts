@@ -77,7 +77,7 @@ export function ensureStatus(): BrowserWindow {
     frame: false,
     transparent: true,
     resizable: false,
-    movable: false,
+    movable: true,
     focusable: false,
     skipTaskbar: true,
     alwaysOnTop: true,

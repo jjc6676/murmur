@@ -86,16 +86,21 @@ const STANDALONE_OK = /^(CapsLock|F([1-9]|1[0-9]|2[0-4])|Esc|Mouse (?:[4-9]|10)|
  * and a combo may not be bound to two different actions.
  */
 export function validateCombo(combo: string, action: string, all: Record<string, string[]>): string | null {
+  const rawKeys = combo.split('+').map((part) => part.trim()).filter(Boolean);
+  const normalizedKeys = rawKeys.map(normalizeKeyId);
+  if (normalizedKeys.some((key) => key === null)) return 'That key is not available for shortcuts';
+  const rawNormalized = normalizedKeys as KeyId[];
+  if (new Set(rawNormalized).size !== rawNormalized.length) return 'Use only one left or right version of each modifier';
   const keys = comboKeyIds(combo);
   if (!keys.length) return 'Press a key combination';
   if (keys.length > 3) return 'Shortcuts can use at most 3 keys';
-  const hasModifier = keys.some((k) => MODIFIERS.includes(k));
-  if (!hasModifier && !(keys.length === 1 && STANDALONE_OK.test(keys[0]))) return 'Add a modifier key like Ctrl, Alt or Win';
   if (keys.length === 1 && keys[0] === 'Win') return 'Win alone is reserved by Windows';
+  const hasModifier = keys.some((key) => MODIFIERS.includes(key));
+  if (!hasModifier && !(keys.length === 1 && STANDALONE_OK.test(keys[0]))) return 'Add a modifier key like Ctrl, Alt or Win';
   const norm = keys.join('+');
   for (const [other, combos] of Object.entries(all)) {
     if (other === action) continue;
-    if (combos.some((c) => normalizeCombo(c) === norm)) return `Already used by another shortcut`;
+    if (combos.some((existing) => normalizeCombo(existing) === norm)) return 'Already used by another shortcut';
   }
   return null;
 }

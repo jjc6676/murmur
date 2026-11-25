@@ -355,6 +355,23 @@ function languageNudges(detected: string, output: string): void {
   }
 }
 
+async function shouldAutoInstruct(text: string): Promise<boolean> {
+  const normalized = text.trim().toLowerCase();
+  const localInstruction = /^(?:please\s+)?(?:draft|reply|respond|rewrite|summarize|translate|shorten|expand|polish|make this|turn (?:on|off)|open (?:settings|history|dictionary|snippets|transforms))\b/.test(normalized);
+  if (getCtx().settings.get().llm.provider === 'none') return localInstruction;
+  try {
+    const classification = await getCtx().llm({
+      system: 'Classify whether the transcript is an instruction asking an assistant to create, transform, navigate, or change settings, rather than text intended to be typed verbatim. Reply with exactly INSTRUCT or DICTATION.',
+      input: text,
+    });
+    if (/^\s*INSTRUCT\s*$/i.test(classification)) return true;
+    if (/^\s*DICTATION\s*$/i.test(classification)) return false;
+  } catch {
+    // Local imperative detection remains available if the configured CLI is unavailable.
+  }
+  return localInstruction;
+}
+
 async function processSession(s: Session): Promise<void> {
   const err = await s.ended.promise;
   session = null;
@@ -423,8 +440,13 @@ async function processSession(s: Session): Promise<void> {
       setState({ phase: 'resting', mode: null, startedAt: null });
       return;
     }
-    if (s.mode === 'command' || s.mode === 'lens' || s.mode === 'instruct') await deliverCommand(s, asrText, outputLanguage, pcm, t0);
-    else await deliver(s, asrText, outputLanguage, pcm, t0, detectedLanguage);
+    if (s.mode === 'command' || s.mode === 'lens' || s.mode === 'instruct') {
+      await deliverCommand(s, asrText, outputLanguage, pcm, t0);
+    } else if (settings.internal.isAutoInstructEnabled && await shouldAutoInstruct(asrText)) {
+      await deliverCommand({ ...s, mode: 'instruct' }, asrText, outputLanguage, pcm, t0);
+    } else {
+      await deliver(s, asrText, outputLanguage, pcm, t0, detectedLanguage);
+    }
   } finally {
     clearTimeout(delayTimer);
   }
@@ -443,8 +465,69 @@ async function deliverCommand(s: Session, instruction: string, language: string,
     setState({ phase: 'resting', mode: null, startedAt: null });
     return;
   }
-  showNudge('FirstTimeUsingCommandMode', { title: 'Using Command Mode (beta)', target: 'bar' }, { max: 1 });
-  showNudge('UseHeyFlowForCommandMode', { title: 'No need to say “Hey Murmur” anymore', body: 'Use your Command Mode shortcut and speak the instruction directly.', target: 'bar' }, { max: 1 });
+  if (s.mode === 'instruct') {
+    const normalized = instruction.trim().toLowerCase();
+    const openRoute = /\b(?:open|show)\s+(settings|history|dictionary|snippets|transforms)\b/.exec(normalized)?.[1];
+    let toolRoute: string | null = null;
+    if (openRoute === 'settings') {
+      broadcast('settings:open', { section: 'general' });
+      toolRoute = 'open_settings';
+    } else if (openRoute) {
+      broadcast('hub:navigate', { route: `/${openRoute}` });
+      toolRoute = `open_${openRoute}`;
+    } else {
+      const disabled = /\bdisable\b|\b(?:turn|switch)\s+off\b|\bstop\b/.test(normalized);
+      if (/\bmute(?: all)? audio\b/.test(normalized)) {
+        settings.patch({ muteAudioWhileDictating: !disabled, pauseMediaWhileDictating: false });
+        toolRoute = 'update_settings_mute_audio';
+      } else if (/\bpause (?:music|media)\b/.test(normalized)) {
+        settings.patch({ pauseMediaWhileDictating: !disabled, muteAudioWhileDictating: false });
+        toolRoute = 'update_settings_pause_media';
+      } else if (/\bcommand mode\b/.test(normalized)) {
+        settings.patch({ commandModeEnabled: !disabled });
+        toolRoute = 'update_settings_command_mode';
+      } else if (/\btyping reminders?\b/.test(normalized)) {
+        settings.patch({ typingReminder: { mode: disabled ? 'disabled' : 'all' } });
+        toolRoute = 'update_settings_typing_reminder';
+      }
+    }
+    if (toolRoute) {
+      const llmSettings = settings.get().llm;
+      const entry = saveHistory(s, {
+        status: 'success',
+        asrText: instruction,
+        formattedText: '',
+        pcm,
+        language,
+        latencyMs: Date.now() - t0,
+        extra: {
+          instructProvider: llmSettings.provider,
+          instructVersion: llmSettings.provider === 'claude' ? llmSettings.claudeModel : llmSettings.codexModel,
+          instructLatencyMs: Date.now() - t0,
+          instructStatus: 'success',
+          instructRoute: toolRoute,
+        },
+      });
+      setState({ phase: 'completed', mode: null, startedAt: null, lastEntryId: entry.id, polishName: null, message: 'Done!' });
+      showToast({ key: 'UpdateSettingsConfirmation', title: toolRoute.startsWith('update_settings') ? 'Settings updated' : 'Opened in Murmur', target: 'bar', tone: 'success' });
+      setTimeout(() => {
+        if (state.phase === 'completed') setState({ phase: 'resting', message: null });
+      }, 1600);
+      return;
+    }
+  }
+  if (s.mode === 'command') {
+    const firstUse = showNudge(
+      'FirstTimeUsingCommandMode',
+      { title: 'Using Command Mode (beta)', target: 'bar', actions: [{ id: 'disable', label: 'Disable' }] },
+      { max: 1 },
+      (action) => action === 'disable' && settings.patch({ commandModeEnabled: false }),
+    );
+    if (!firstUse) showToast({ key: 'UsingCommandMode', title: 'Using Command Mode', target: 'bar', durationMs: 1800 });
+    showNudge('UseHeyFlowForCommandMode', { title: 'No need to say “Hey Murmur” anymore', body: 'Use your Command Mode shortcut and speak the instruction directly.', target: 'bar' }, { max: 1 });
+  } else if (s.mode === 'lens') {
+    showNudge('LensIntro', { title: 'Ask Murmur about what you see', body: 'Select text or focus a window, then ask your question with the Lens shortcut.', target: 'bar', actions: [{ id: 'settings', label: 'Lens settings' }] }, { max: 1 }, (action) => action === 'settings' && broadcast('settings:open', { section: 'shortcuts' }));
+  }
   setState({ phase: 'polish_processing', polishName: 'Command' });
   await waitForModifiersReleased((k) => hotkeys.isHeld(k));
   const selection = await copySelection();
@@ -525,6 +608,7 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
       }
     }
   }
+  const htmlText = finalText === formatted.text ? formatted.htmlText : null;
   markPhrasesUsed(formatted.usedPhrases);
   const isOwnWindow = MURMUR_PROCESSES[s.target.processName] === true && !s.target.title.toLowerCase().includes('scratchpad');
   const voidTarget = !s.target.hwnd || s.target.processName === 'explorer' && !s.target.title;
@@ -568,7 +652,7 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
     for (let i = 0; i < stacked.length; i++) {
       // stacked messages: send every chunk but the last as its own message
       const last = i === stacked.length - 1;
-      pasteOutcome = await pasteText(stacked[i], { target: s.target, pressEnter: last ? formatted.pressEnter : true });
+      pasteOutcome = await pasteText(stacked[i], { target: s.target, html: stacked.length === 1 ? htmlText ?? undefined : undefined, pressEnter: last ? formatted.pressEnter : true });
     }
     if (pasteOutcome) getCtx().db.run('UPDATE history SET pasteOutcome = ?, pasteDelayed = ? WHERE id = ?', pasteOutcome.outcome, pasteOutcome.delayed ? 1 : 0, entry.id);
     if (pasteOutcome?.outcome === 'blocked') {
@@ -615,7 +699,14 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
     if (!showNudge('FeatureNotifSnippets', { title: 'Snippets save reusable text', target: 'bar' }, { max: 1 }))
       showNudge('SnippetsReminder', { title: 'A snippet expanded automatically', target: 'bar' }, { max: 2 });
   }
-  let educationShown = showNudge('MoveableFlowBarLaunchModal', { title: 'Move your Flow Bar', body: 'Choose bottom, left, or right placement in Settings.', target: 'bar', actions: [{ id: 'settings', label: 'Open Settings' }] }, { max: 1 }, (action) => action === 'settings' && broadcast('settings:open', { section: 'general' }));
+  let educationShown = showNudge(
+    'MoveableFlowBarLaunchModal',
+    { title: 'You can now move the Flow Bar!', body: 'Move it to the left, right, or bottom of your screen.', target: 'bar', actions: [{ id: 'try', label: 'Try it out' }] },
+    { max: 1 },
+    (action) => {
+      if (action === 'try') showToast({ key: 'FlowBarMoveHint', title: 'Click and drag the Flow Bar to move it!', body: 'Drag the dark bar itself; use Settings to snap it back to a dock.', target: 'bar', durationMs: 8000 });
+    },
+  );
   if (!educationShown && s.mode === 'ptt')
     educationShown = showNudge('SuggestPOPO', { title: 'Try hands-free dictation', body: `Double-tap ${shortcutLabel('ptt')} to start, then press it again to finish.`, target: 'bar' }, { max: 1 });
   if (!educationShown && formatted.pressEnter)

@@ -112,7 +112,14 @@ export async function applyToSelection(transformId: string): Promise<TransformRu
   broadcast('dictation:state', { phase: 'resting', mode: null, startedAt: null, level: 0, message: run.status === 'success' ? 'Transformed!' : null, lastEntryId: null, polishName: null });
   if (run.status === 'failed') {
     const timeout = /timed out/i.test(run.error ?? '');
-    showToast({ key: timeout ? 'PolishTimeout' : 'PolishTextFailed', title: timeout ? 'Transform timed out' : 'Transform failed', body: run.error ?? 'Something went wrong. Please try again.', tone: 'error', target: 'bar' });
+    const empty = !run.outputText && /no text/i.test(run.error ?? '');
+    showToast({
+      key: timeout ? 'PolishTimeout' : empty ? 'PolishEmptyResponse' : 'PolishTextFailed',
+      title: timeout ? 'Transform timed out' : empty ? 'Transform returned no text' : 'Transform failed',
+      body: empty ? 'Something went wrong. Please try again.' : run.error ?? 'Something went wrong. Please try again.',
+      tone: 'error',
+      target: 'bar',
+    });
     return run;
   }
   if (run.status === 'cancelled') {

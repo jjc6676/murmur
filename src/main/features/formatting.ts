@@ -28,15 +28,40 @@ export interface FormatOutcome extends PipelineResult {
   llmText: string | null;
   toneMatchedText: string | null;
   transcriptionFormat: 'raw' | 'formatted';
+  htmlText: string | null;
 }
 
 /** Dictionary corrections and snippet expansions currently stored. */
-export function replacementRules(): { dictionary: { phrase: string; replacement: string }[]; snippets: { phrase: string; replacement: string }[] } {
-  const rows = getCtx().db.all<{ phrase: string; replacement: string | null; isSnippet: number }>('SELECT phrase, replacement, isSnippet FROM dictionary');
+export function replacementRules(): {
+  dictionary: { phrase: string; replacement: string }[];
+  snippets: { phrase: string; replacement: string; replacementHtml: string | null }[];
+} {
+  const rows = getCtx().db.all<{ phrase: string; replacement: string | null; replacementHtml: string | null; isSnippet: number }>(
+    'SELECT phrase, replacement, replacementHtml, isSnippet FROM dictionary',
+  );
   return {
-    dictionary: rows.filter((r) => !r.isSnippet && r.replacement).map((r) => ({ phrase: r.phrase, replacement: r.replacement as string })),
-    snippets: rows.filter((r) => r.isSnippet && r.replacement).map((r) => ({ phrase: r.phrase, replacement: r.replacement as string })),
+    dictionary: rows.filter((row) => !row.isSnippet && row.replacement).map((row) => ({ phrase: row.phrase, replacement: row.replacement as string })),
+    snippets: rows.filter((row) => row.isSnippet && row.replacement).map((row) => ({ phrase: row.phrase, replacement: row.replacement as string, replacementHtml: row.replacementHtml })),
   };
+}
+
+function escapeHtml(text: string): string {
+  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+}
+
+function withRichSnippetHtml(out: FormatOutcome, snippets: { phrase: string; replacement: string; replacementHtml: string | null }[]): FormatOutcome {
+  const rich = snippets.filter((snippet) => snippet.replacementHtml && out.usedPhrases.includes(snippet.phrase));
+  if (!rich.length || !out.text) return out;
+  let html = escapeHtml(out.text).replaceAll('\r\n', '\n').replaceAll('\n', '<br>');
+  let replaced = false;
+  for (const snippet of rich) {
+    const escaped = escapeHtml(snippet.replacement);
+    const pattern = new RegExp(escaped.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    if (!pattern.test(html)) continue;
+    html = html.replace(pattern, snippet.replacementHtml ?? '');
+    replaced = true;
+  }
+  return replaced ? { ...out, htmlText: `<div>${html}</div>` } : out;
 }
 
 /** Vocabulary hint for whisper: dictionary words (and correction targets), bounded length. */
@@ -78,9 +103,10 @@ export async function formatForApp(raw: string, app: { processName: string; titl
   const s = settings.get();
   const styleContext = styleContextFor(app.processName, app.title, s.styles);
   const tone = s.styles[styleContext].tone;
+  const cleanupLevel = s.styles[styleContext].cleanupLevel ?? s.cleanupLevel;
   const rules = replacementRules();
   const local = formatDictation(raw, {
-    cleanupLevel: s.cleanupLevel,
+    cleanupLevel,
     tone,
     smartFormatting: s.smartFormatting,
     dictionary: rules.dictionary,
@@ -104,20 +130,21 @@ export async function formatForApp(raw: string, app: { processName: string; titl
     ...local,
     text: format === 'raw' ? raw.trim() : local.text,
     styleContext,
-    cleanupLevel: s.cleanupLevel,
+    cleanupLevel,
     llmUsed: false,
     llmError: null,
     localPipelineText,
     llmText: null,
     toneMatchedText: null,
+    htmlText: null,
     transcriptionFormat: format,
   };
   if (format === 'raw') return out;
   const toneMatching = s.toneMatchingEnabled && !!opts.contextText?.trim();
-  const needsLlm = (s.cleanupLevel === 'medium' || s.cleanupLevel === 'high' || tone === 'gen_z' || toneMatching) && s.llm.provider !== 'none';
-  if (opts.allowLlm === false || !needsLlm || !local.text) return withSignature(out);
+  const needsLlm = (cleanupLevel === 'medium' || cleanupLevel === 'high' || tone === 'gen_z' || toneMatching) && s.llm.provider !== 'none';
+  if (opts.allowLlm === false || !needsLlm || !local.text) return withRichSnippetHtml(withSignature(out), rules.snippets);
   try {
-    const guide = s.cleanupLevel === 'medium' || s.cleanupLevel === 'high' ? LEVEL_GUIDE[s.cleanupLevel] : 'Light cleanup only: keep wording, fix grammar.';
+    const guide = cleanupLevel === 'medium' || cleanupLevel === 'high' ? LEVEL_GUIDE[cleanupLevel] : 'Light cleanup only: keep wording, fix grammar.';
     const text = await llm({
       system: [
         'You clean up dictated text for pasting into an app. Output ONLY the final text: no quotes, no preamble, no explanations.',
@@ -138,7 +165,7 @@ export async function formatForApp(raw: string, app: { processName: string; titl
   } catch (e) {
     out.llmError = e instanceof Error ? e.message : String(e);
   }
-  return withSignature(out);
+  return withRichSnippetHtml(withSignature(out), rules.snippets);
 }
 
 /** "Written with Murmur" / "Spoken with Murmur" footer for dictated emails when enabled. */

@@ -40,6 +40,7 @@ export function FlowBar() {
   const [hover, setHover] = useState(false);
   const [menu, setMenu] = useState(false);
   const [devices, setDevices] = useState<{ deviceId: string; label: string }[]>([]);
+  const [showOtherDevices, setShowOtherDevices] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const hiddenUntil = settings.flowBarHiddenUntil;
   const [snoozed, setSnoozed] = useState(false);
@@ -78,6 +79,8 @@ export function FlowBar() {
   const done = phase === 'completed';
   const expanded = active || busy || done || phase === 'error' || hover || menu;
   const ptt = settings.shortcuts.ptt[0];
+  const visibleDevices = devices.filter((device) => showOtherDevices || !/(virtual|loopback|stereo mix|voicemeeter|cable|system audio)/i.test(device.label));
+  const hiddenDeviceCount = devices.length - visibleDevices.length;
   if (snoozed && !active && !busy && !toasts.length) return null;
 
   return (
@@ -108,11 +111,12 @@ export function FlowBar() {
       {menu && (
         <div className={s.menu} role="menu" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
           <div className={s.menuSection}>Microphone</div>
-          {devices.map((device) => (
+          {visibleDevices.map((device) => (
             <button key={device.deviceId} type="button" role="menuitemradio" aria-checked={settings.micDeviceId === device.deviceId} onClick={() => void api.settings.patch({ micDeviceId: device.deviceId })}>
               {settings.micDeviceId === device.deviceId ? <Check size={14} /> : <span className={s.menuCheck} />} {device.label}
             </button>
           ))}
+          {hiddenDeviceCount > 0 && <button type="button" role="menuitem" onClick={() => setShowOtherDevices((value) => !value)}><Mic size={15} />{showOtherDevices ? 'Hide' : 'Show'} virtual/other devices ({hiddenDeviceCount})</button>}
           <div className={s.menuSection}>Auto Apply After Dictation</div>
           <button type="button" role="menuitemcheckbox" aria-checked={settings.autoApplyAfterDictation.active} onClick={() => void api.settings.patch({ autoApplyAfterDictation: { ...settings.autoApplyAfterDictation, active: !settings.autoApplyAfterDictation.active } })}>
             {settings.autoApplyAfterDictation.active ? <Check size={14} /> : <span className={s.menuCheck} />} Enabled
@@ -146,6 +150,12 @@ export function FlowBar() {
           </button>
           <button type="button" role="menuitem" onClick={() => { setMenu(false); void api.recorder.openNotepad(); }}>
             <NotebookPen size={15} /> Open Notepad
+          </button>
+          <button type="button" role="menuitem" onClick={() => { setMenu(false); void api.settings.patch({ typingReminder: { ...settings.typingReminder, mutedUntil: Date.now() + 12 * 60 * 60 * 1000 } }); }}>
+            <EyeOff size={15} /> Mute reminder for 12 hours
+          </button>
+          <button type="button" role="menuitem" onClick={() => { setMenu(false); void api.app.openSettings('system'); }}>
+            <SettingsIcon size={15} /> Reminder controls
           </button>
           <button type="button" role="menuitem" onClick={() => { setMenu(false); void api.dictation.hideBarFor(60 * 60 * 1000); }}>
             <EyeOff size={15} /> Hide for 1 hour
