@@ -1,0 +1,160 @@
+.frame {
+  position: relative;
+  height: 100%;
+  background: var(--app-frame);
+  border: 1px solid var(--border);
+}
+
+.titlebar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 16px;
+  z-index: 10;
+}
+.titleLeft,
+.titleRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.upgrade {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 14px;
+  font-weight: 550;
+  margin-right: 6px;
+}
+.upgrade:hover {
+  filter: brightness(0.97);
+}
+.bellWrap {
+  position: relative;
+  display: inline-flex;
+}
+.bellDot {
+  position: absolute;
+  top: 1px;
+  right: -1px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 650;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.winControls {
+  display: flex;
+  margin-left: 4px;
+}
+.winControls button {
+  width: 46px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  color: var(--foreground);
+}
+.winControls button:hover {
+  background: var(--muted-hover);
+}
+.winControls .close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
+.sidebar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 216px;
+  padding: 56px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  background: var(--sidebar);
+  transition: transform 0.22s var(--ease-spring), opacity 0.18s;
+}
+.sidebarClosed {
+  transform: translateX(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 8px;
+  margin-bottom: 20px;
+  color: var(--foreground);
+}
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 550;
+  color: var(--foreground);
+  text-decoration: none;
+  text-align: left;
+  width: 100%;
+}
+.navItem span {
+  flex: 1;
+}
+.navItem:hover {
+  background: var(--muted-hover);
+}
+.navActive,
+.navActive:hover {
+  background: var(--background-secondary);
+}
+.spacer {
+  flex: 1;
+  min-height: 12px;
+}
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 8px 0;
+}
+
+.content {
+  position: absolute;
+  top: 48px;
+  right: 8px;
+  bottom: 8px;
+  left: 216px;
+  background: var(--background);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  transition: left 0.22s var(--ease-spring);
+}
+.contentFull {
+  left: 8px;
+}

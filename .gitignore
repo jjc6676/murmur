@@ -1,0 +1,8 @@
+node_modules/
+out/
+dist/
+.re/
+resources/whisper/
+test-results/
+playwright-report/
+*.log

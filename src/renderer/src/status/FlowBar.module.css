@@ -1,0 +1,229 @@
+.root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 10px;
+  pointer-events: none;
+  font-size: 13px;
+}
+.root > * {
+  pointer-events: auto;
+}
+
+.pill {
+  height: 8px;
+  min-width: 44px;
+  border-radius: 999px;
+  background: rgb(26 26 26 / 0.82);
+  border: 1px solid rgb(255 255 255 / 0.22);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #fff;
+  transition: height 0.22s cubic-bezier(0.22, 1, 0.36, 1), min-width 0.22s cubic-bezier(0.22, 1, 0.36, 1), padding 0.2s, background 0.2s;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.pillExpanded {
+  height: 36px;
+  min-width: 110px;
+  padding: 0 6px;
+  background: #121212;
+}
+.pillActive {
+  min-width: 132px;
+}
+.pillDone {
+  padding: 0 12px;
+}
+.pillError {
+  background: #7f1d1d;
+  padding: 0 12px;
+}
+.pillBtn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgb(255 255 255 / 0.12);
+}
+.pillBtn:hover {
+  background: rgb(255 255 255 / 0.24);
+}
+.stopBtn {
+  background: #ef4444;
+}
+.stopBtn:hover {
+  background: #dc2626;
+}
+.pillBtnSpacer {
+  width: 24px;
+}
+
+.wave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+}
+.wave span {
+  width: 3px;
+  height: 22px;
+  border-radius: 2px;
+  background: #fff;
+  transform-origin: center;
+  transition: transform 0.08s linear;
+}
+
+.dots {
+  display: flex;
+  gap: 5px;
+  padding: 0 10px;
+}
+.dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  animation: dot 1s infinite ease-in-out;
+}
+.dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  padding: 0 6px;
+}
+.hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #fff;
+  font-weight: 500;
+  padding: 0 10px;
+}
+.hint kbd {
+  background: rgb(255 255 255 / 0.12);
+  border-color: rgb(255 255 255 / 0.2);
+  box-shadow: none;
+  color: #fff;
+  height: 20px;
+  min-width: 20px;
+  font-size: 11px;
+}
+
+.toasts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 0 12px;
+}
+.toast {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  background: #121212;
+  color: #fff;
+  border-radius: 14px;
+  padding: 11px 32px 11px 14px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
+  animation: m-pop-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.toastText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.toastText strong {
+  font-weight: 600;
+}
+.toastText span {
+  opacity: 0.75;
+  font-size: 12.5px;
+  white-space: normal;
+}
+.toastActions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.toastActions button {
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 7px;
+  background: rgb(255 255 255 / 0.14);
+}
+.toastActions button:hover {
+  background: rgb(255 255 255 / 0.24);
+}
+.toastClose {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  color: rgb(255 255 255 / 0.6);
+}
+.tone_error {
+  background: #3a1111;
+}
+.tone_warning {
+  background: #2e2210;
+}
+.tone_success {
+  background: #0f2a21;
+}
+
+.menu {
+  width: 240px;
+  background: #121212;
+  color: #fff;
+  border-radius: 14px;
+  padding: 6px;
+  margin-bottom: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.3);
+  display: flex;
+  flex-direction: column;
+}
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  text-align: left;
+}
+.menu button:hover {
+  background: rgb(255 255 255 / 0.1);
+}

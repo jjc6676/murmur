@@ -1,0 +1,20 @@
+{
+  "name": "murmur",
+  "productName": "Murmur",
+  "version": "0.1.0",
+  "description": "Offline voice dictation and meeting notes for Windows",
+  "author": "Jason",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "compile": "electron-vite build",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "e2e": "npm run compile && playwright test",
+    "fetch-whisper": "node scripts/fetch-whisper.mjs",
+    "build": "npm run fetch-whisper && electron-vite build && electron-builder --win --x64 --publish never"
+  }
+}
