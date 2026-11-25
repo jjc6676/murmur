@@ -4,6 +4,7 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_SETTINGS } from '@shared/settings';
 import { getCtx } from '../context';
+import { nowIso } from '../db';
 import { broadcast, callerWindow, handle } from '../ipc';
 import { paths } from '../paths';
 import { getForegroundApp } from '../native/win32';
@@ -53,7 +54,7 @@ export function registerApp(): void {
     const retentionDays = current.notetaker.transcriptRetentionDays;
     if (retentionDays !== null) {
       const cutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
-      const changed = db.run("UPDATE meetings SET transcript = '[]', summary = NULL, summaryStatus = 'none', searchable = '' WHERE createdAt < ? AND (transcript != '[]' OR summary IS NOT NULL)", cutoff).changes;
+      const changed = db.run("UPDATE meetings SET transcript = '[]', summary = NULL, summaryStatus = 'none', searchable = '', transcriptDeletedAt = COALESCE(transcriptDeletedAt, ?) WHERE createdAt < ? AND (transcript != '[]' OR summary IS NOT NULL)", nowIso(), cutoff).changes;
       if (changed) broadcast('meetings:changed', { id: null });
     }
   };

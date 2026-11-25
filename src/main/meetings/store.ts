@@ -24,6 +24,7 @@ export interface MeetingRow {
   audioUpdatedAt: string | null;
   noticePosted: number;
   autoShareEnabled: number;
+  transcriptDeletedAt: string | null;
 }
 
 function parseJson<T>(value: string | null, fallback: T): T {
@@ -62,6 +63,7 @@ export function rowToMeeting(row: MeetingRow): Meeting {
     audioUpdatedAt: row.audioUpdatedAt,
     noticePosted: Boolean(row.noticePosted),
     autoShareEnabled: Boolean(row.autoShareEnabled),
+    transcriptDeletedAt: row.transcriptDeletedAt,
   };
 }
 

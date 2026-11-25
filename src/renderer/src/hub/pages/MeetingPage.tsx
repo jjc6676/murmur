@@ -5,7 +5,8 @@ import type { Folder as FolderType, Meeting, MeetingChatMessage, Todo, Transcrip
 import { api, errorMessage, useEvent } from '../../lib/api';
 import { Button, Checkbox, EmptyState, IconButton, Input, Page, Select, Tabs, TextArea } from '../../ui';
 import { usePatchSettings, useSettings } from '../../lib/settings';
-import { toast } from '../state';
+import { toast, useHubUi } from '../state';
+import { SpeakerClipButton } from '../notetaker/SpeakerClipButton';
 import '../notetaker/notetaker.css';
 
 type MeetingTab = 'thoughts' | 'transcript' | 'summary';
@@ -16,6 +17,7 @@ export function MeetingPage() {
   const navigate = useNavigate();
   const settings = useSettings();
   const patchSettings = usePatchSettings();
+  const openSettings = useHubUi((state) => state.openSettings);
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [folders, setFolders] = useState<FolderType[]>([]);
   const [tab, setTab] = useState<MeetingTab>('summary');
@@ -171,6 +173,12 @@ export function MeetingPage() {
                   {search && <><span className="nt-subtle">{filteredSegments.length ? matchIndex + 1 : 0}/{filteredSegments.length}</span><Button size="sm" variant="ghost" aria-label="Previous transcript match" icon={<ChevronLeft size={14} />} onClick={() => setMatchIndex((current) => filteredSegments.length ? (current - 1 + filteredSegments.length) % filteredSegments.length : 0)} /><Button size="sm" variant="ghost" aria-label="Next transcript match" icon={<ChevronRight size={14} />} onClick={() => setMatchIndex((current) => filteredSegments.length ? (current + 1) % filteredSegments.length : 0)} /></>}
                   <Button size="sm" variant="ghost" icon={<Copy size={14} />} onClick={() => void copyTranscript()}>Copy transcript</Button>
                 </div>
+                {meeting.transcriptDeletedAt && (
+                  <div className="recorder-banner warning" role="status">
+                    <div className="nt-grow"><strong>Transcript deleted by retention policy</strong><div>The transcript reached your local retention limit on {new Date(meeting.transcriptDeletedAt).toLocaleDateString()}.</div></div>
+                    <Button size="sm" variant="outline" onClick={() => openSettings('notetaker')}>Retention settings</Button>
+                  </div>
+                )}
                 {filteredSegments.map((segment) => (
                   <div className="transcript-line" key={segment.id}>
                     <button type="button" className="speaker-chip" onClick={() => { const name = window.prompt('Speaker name', segment.speakerName); if (name) void api.meetings.renameSpeaker(meeting.id, segment.speaker, name).then(setMeeting); }}>{segment.speakerName}</button>
@@ -182,10 +190,10 @@ export function MeetingPage() {
                           <div className="nt-inline-actions"><Button size="sm" onClick={() => void saveSegment()} disabled={!editing.text.trim() || editing.saving}>{editing.saving ? 'Saving edit…' : editing.error ? 'Try again' : 'Save edit'}</Button><Button size="sm" variant="ghost" onClick={() => setEditing(null)} disabled={editing.saving}>Cancel edit</Button></div>
                         </div>
                       ) : (
-                        <>{segment.text}{segment.translatedText && <span className="segment-translation">{segment.translatedText} <span className="nt-subtle">Translated. Original available.</span> <button type="button" className="inline-link" onClick={() => void api.app.copyText(segment.originalText ?? segment.text)}>Copy original</button></span>}{segment.edited && <span className="nt-subtle"> · Edited <button type="button" className="inline-link" onClick={() => setRevealedOriginals((current) => { const next = new Set(current); if (next.has(segment.id)) next.delete(segment.id); else next.add(segment.id); return next; })}>{revealedOriginals.has(segment.id) ? 'Hide original transcript' : 'Original transcript'}</button></span>}{revealedOriginals.has(segment.id) && segment.originalText && <span className="segment-original">{segment.originalText}</span>}</>
+                        <>{segment.translatedText ? <>{segment.translatedText}<span className="segment-translation"><span className="nt-subtle">{segment.sourceLanguage || meeting.language ? `Translated from ${(segment.sourceLanguage || meeting.language).toUpperCase()}. Original available.` : 'Translated. Original available.'}</span> <button type="button" className="inline-link" onClick={() => setRevealedOriginals((current) => { const next = new Set(current); if (next.has(segment.id)) next.delete(segment.id); else next.add(segment.id); return next; })}>{revealedOriginals.has(segment.id) ? 'Hide original' : 'Original'}</button>{revealedOriginals.has(segment.id) && <span className="segment-original">{segment.text}</span>}</span></> : segment.text}{segment.edited && <span className="nt-subtle"> · Edited <button type="button" className="inline-link" onClick={() => setRevealedOriginals((current) => { const next = new Set(current); if (next.has(segment.id)) next.delete(segment.id); else next.add(segment.id); return next; })}>{revealedOriginals.has(segment.id) ? 'Hide original transcript' : 'Original transcript'}</button></span>}{revealedOriginals.has(segment.id) && segment.originalText && <span className="segment-original">{segment.originalText}</span>}</>
                       )}
                     </div>
-                    <div className="nt-inline-actions"><Button size="sm" variant="ghost" onClick={() => setEditing({ segment, text: segment.text, saving: false, error: null })}>Edit</Button>{segment.edited && <Button size="sm" variant="ghost" icon={<RotateCcw size={13} />} onClick={() => void api.meetings.revertSegment(meeting.id, segment.id).then(setMeeting)}>Revert</Button>}<IconButton size="sm" label="Delete transcript line" onClick={() => void deleteSegment(segment)}><Trash2 size={13} /></IconButton></div>
+                    <div className="nt-inline-actions"><SpeakerClipButton meetingId={meeting.id} speaker={segment.speaker} speakerName={segment.speakerName} /><Button size="sm" variant="ghost" onClick={() => setEditing({ segment, text: segment.text, saving: false, error: null })}>Edit</Button>{segment.edited && <Button size="sm" variant="ghost" icon={<RotateCcw size={13} />} onClick={() => void api.meetings.revertSegment(meeting.id, segment.id).then(setMeeting)}>Revert</Button>}<IconButton size="sm" label="Delete transcript line" onClick={() => void deleteSegment(segment)}><Trash2 size={13} /></IconButton></div>
                   </div>
                 ))}
                 {!filteredSegments.length && <EmptyState icon={<Search />} title="No transcript matches" />}

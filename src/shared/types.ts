@@ -185,6 +185,7 @@ export interface TranscriptSegment {
   edited: boolean;
   translatedText?: string;
   originalText?: string;
+  sourceLanguage?: string;
 }
 
 export interface MeetingSummarySection {
@@ -224,6 +225,7 @@ export interface Meeting {
   audioUpdatedAt?: string | null;
   noticePosted?: boolean;
   autoShareEnabled?: boolean;
+  transcriptDeletedAt?: string | null;
 }
 
 export interface MeetingListItem {

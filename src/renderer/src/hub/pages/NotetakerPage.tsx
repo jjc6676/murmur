@@ -37,6 +37,7 @@ export function NotetakerPage() {
   const [granolaPrompt, setGranolaPrompt] = useState(false);
   const [granolaImporting, setGranolaImporting] = useState(false);
   const [granolaProgress, setGranolaProgress] = useState<{ current: number; total: number } | null>(null);
+  const [calendarNudgeDismissed, setCalendarNudgeDismissed] = useState(() => settings.dismissedBanners.includes('notetaker:calendar-nudge'));
 
   const refresh = useCallback(async () => {
     const [meetingRows, folderRows, calendarRows, recorderState] = await Promise.all([
@@ -90,8 +91,12 @@ export function NotetakerPage() {
       setSwitchPrompt(true);
       return;
     }
-    const next = await api.recorder.start(opts);
-    if (next.meetingId) await api.recorder.openNotepad(next.meetingId);
+    try {
+      const next = await api.recorder.start(opts);
+      if (next.meetingId) await api.recorder.openNotepad(next.meetingId);
+    } catch (error) {
+      toast('Notetaker could not start', { body: errorMessage(error), tone: 'error' });
+    }
   };
   const joinAndStart = async (event: CalendarEvent) => {
     if (event.conferenceUrl) await api.app.openExternal(event.conferenceUrl);
@@ -129,6 +134,15 @@ export function NotetakerPage() {
             </>
           }
         />
+        <Dialog
+          open={settings.notetaker.meetingCount === 0 && !settings.dismissedBanners.includes('notetaker:welcome')}
+          onClose={() => void patchSettings({ dismissedBanners: [...settings.dismissedBanners, 'notetaker:welcome'] })}
+          title="Welcome to Murmur Notetaker"
+          description="Stay present while Murmur captures a local transcript, creates a clear summary, and turns decisions into action-ready notes."
+          footer={<><Button variant="ghost" onClick={() => void patchSettings({ dismissedBanners: [...settings.dismissedBanners, 'notetaker:welcome'] })}>Maybe later</Button><Button onClick={() => { void patchSettings({ dismissedBanners: [...settings.dismissedBanners, 'notetaker:welcome'] }); void startNotetaker({ title: 'Notetaker guided tour', isTourDemo: true }); }}>Try the 2-minute tour</Button></>}
+        >
+          <p>No bot joins your meeting. Audio and notes stay on this computer.</p>
+        </Dialog>
         {granolaImporting && <div className="recorder-banner" role="status" aria-live="polite"><strong>Importing Granola meetings{granolaProgress?.total ? ` ${granolaProgress.current} of ${granolaProgress.total}` : ''}…</strong><span>Do not close Murmur. Imported meetings are kept if you cancel later.</span><Button size="sm" variant="ghost" onClick={() => void api.meetings.cancelGranolaImport()}>Cancel</Button></div>}
 
         {!settings.notetaker.autoDetectCalls && (
@@ -136,6 +150,13 @@ export function NotetakerPage() {
             <div className="nt-grow"><strong>Never miss meeting notes</strong><div>Turn meeting detection back on so Murmur can remind you when a call starts.</div></div>
             <Button size="sm" variant="ghost" onClick={() => toast('You can turn reminders on any time in Notetaker settings.')}>Not now</Button>
             <Button size="sm" onClick={() => void patchSettings({ notetaker: { autoDetectCalls: true } }).then(() => toast('Meeting reminders are on.', { tone: 'success' }))}>Yes, remind me</Button>
+          </div>
+        )}
+        {!settings.notetaker.autoStart && settings.notetaker.autoStartOptInState === 'none' && settings.notetaker.meetingCount > 0 && (
+          <div className="recorder-banner">
+            <div className="nt-grow"><strong>Start Notetaker automatically</strong><div>Murmur can start as soon as a meeting begins. You can always stop it.</div></div>
+            <Button size="sm" variant="ghost" onClick={() => void patchSettings({ notetaker: { autoStartOptInState: 'disabled' } })}>Not now</Button>
+            <Button size="sm" onClick={() => void patchSettings({ notetaker: { autoStart: true, autoStartOptInState: 'enabled' } }).then(() => toast('Auto-start is on.', { tone: 'success' }))}>Turn on auto-start</Button>
           </div>
         )}
         <section className="nt-schedule" aria-label="Meeting schedule">
@@ -176,8 +197,9 @@ export function NotetakerPage() {
           }) : (
             <div className="nt-schedule-row">
               <div className="nt-schedule-icon"><CalendarDays size={18} /></div>
-              <div className="nt-grow"><div className="nt-title">Connect your calendar</div><div className="nt-subtle">Get richer summaries and on-time meeting reminders</div></div>
-              <Button size="sm" variant="outline" onClick={() => openSettings('connectors')}>Connect</Button>
+              <div className="nt-grow"><div className="nt-title">{calendarNudgeDismissed ? 'No calendar connected' : 'Connect your calendar'}</div><div className="nt-subtle">{calendarNudgeDismissed ? 'Add an .ics calendar any time from Settings.' : 'Add participant names, accurate speaker labels, action items, and a full summary'}</div></div>
+              {!calendarNudgeDismissed && <Button size="sm" variant="ghost" onClick={() => { setCalendarNudgeDismissed(true); void patchSettings({ dismissedBanners: [...settings.dismissedBanners, 'notetaker:calendar-nudge'] }); }}>Not now</Button>}
+              <Button size="sm" variant="outline" onClick={() => openSettings('connectors')}>Connect calendar</Button>
             </div>
           )}
         </section>

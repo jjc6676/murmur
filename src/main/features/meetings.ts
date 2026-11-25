@@ -8,7 +8,7 @@ import { getCtx } from '../context';
 import { newId, nowIso } from '../db';
 import { broadcast, callerWindow, handle } from '../ipc';
 import { paths } from '../paths';
-import { showToast } from '../toasts';
+import { addNotification, showToast } from '../toasts';
 import { ensureHub } from '../windows';
 import { pcm16ToWav, wavToPcm16 } from '../audio/wav';
 import { parseIcs } from '../meetings/ics';
@@ -210,6 +210,7 @@ function scheduleReminders(events: CalendarEvent[]): void {
     const delay = new Date(event.start).getTime() - Date.now() - minutes * 60_000;
     if (delay < 0 || delay > 7 * 24 * 60 * 60 * 1000) continue;
     reminderTimers.set(event.id, setTimeout(() => {
+      addNotification({ type: 'system', key: `Calendar:${event.id}`, title: event.title, text: 'Your meeting is starting soon. Open Notetaker to join or start notes.' });
       showToast({ key: `Calendar:${event.id}`, title: event.title, body: 'Your meeting is starting soon', target: 'hub', actions: [
         ...(event.conferenceUrl ? [{ id: 'join', label: 'Join' }] : []),
         { id: 'start', label: 'Start Notetaker' },
@@ -230,12 +231,18 @@ function enforceTranscriptRetention(): void {
   for (const row of rows) {
     const created = new Date(row.createdAt).getTime();
     if (created < cutoff) {
-      getCtx().db.update('meetings', row.id, { transcript: '[]' });
+      getCtx().db.update('meetings', row.id, { transcript: '[]', transcriptDeletedAt: nowIso() });
+      addNotification({ type: 'system', key: `TranscriptRetentionDeleted:${row.id}`, title: 'Transcript removed by retention policy', text: `${row.title} reached your local retention limit. Open Notetaker settings to change retention.` });
       updateSearchable(row.id);
     } else if (created < warningCutoff) {
       showToast({ key: `Retention:${row.id}`, title: 'Transcript will be removed in 24 hours', body: row.title, tone: 'warning', target: 'hub', actions: [{ id: 'open', label: 'Open meeting' }] }, (action) => {
         if (action === 'open') ensureHub(true, `/notetaker/${row.id}`);
       });
+      const notificationKey = `notetaker.retentionWarning.${row.id}`;
+      if (!getCtx().db.kvGet<boolean>(notificationKey, false)) {
+        getCtx().db.kvSet(notificationKey, true);
+        addNotification({ type: 'system', key: `TranscriptRetentionWarning:${row.id}`, title: 'Transcript will be removed in 24 hours', text: `${row.title} is nearing your local retention limit. Open Notetaker to review it.` });
+      }
     }
   }
 }
@@ -309,6 +316,17 @@ export function registerMeetings(): void {
       const meeting = requireMeeting(id);
       if (meeting.transcript.some((item) => item.id === segment.id)) return meeting;
       return saveTranscript(id, [...meeting.transcript, segment].sort((left, right) => left.start - right.start));
+    },
+    getSpeakerClip(id, speaker) {
+      const meeting = requireMeeting(id);
+      const row = getCtx().db.get<{ audioPath: string | null }>('SELECT audioPath FROM meetings WHERE id = ?', id);
+      const segment = meeting.transcript.find((item) => item.speaker === speaker);
+      if (!row?.audioPath || !segment || !existsSync(row.audioPath)) return null;
+      const pcm = wavToPcm16(readFileSync(row.audioPath));
+      const start = Math.max(0, Math.floor(segment.start * 16_000) * 2);
+      const duration = Math.max(0.5, Math.min(4, segment.end - segment.start));
+      const clip = pcm.subarray(start, Math.min(pcm.length, start + Math.floor(duration * 16_000) * 2));
+      return clip.length ? `data:audio/wav;base64,${pcm16ToWav(clip).toString('base64')}` : null;
     },
     remove(id) {
       const meeting = requireMeeting(id);

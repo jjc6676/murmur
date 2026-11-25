@@ -330,6 +330,9 @@ const MIGRATIONS: string[] = [
   ALTER TABLE skills_without_unique_command RENAME TO skills;
   CREATE INDEX skills_command ON skills(command);
   `,
+  `
+  ALTER TABLE meetings ADD COLUMN transcriptDeletedAt TEXT;
+  `,
 ];
 
 export type Row = Record<string, SQLInputValue>;

@@ -156,6 +156,7 @@ export interface MeetingsApi {
   revertSegment(id: string, segmentId: string): Meeting;
   deleteSegment(id: string, segmentId: string): Meeting;
   restoreSegment(id: string, segment: TranscriptSegment): Meeting;
+  getSpeakerClip(id: string, speaker: string): string | null;
   remove(id: string): void;
   regenerateSummary(id: string, template?: string): Meeting;
   chat(id: string, message: string): MeetingChatMessage[];
