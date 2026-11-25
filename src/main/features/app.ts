@@ -2,6 +2,7 @@
 import { app, clipboard, dialog, shell } from 'electron';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DEFAULT_SETTINGS } from '@shared/settings';
 import { getCtx } from '../context';
 import { broadcast, callerWindow, handle } from '../ipc';
 import { paths } from '../paths';
@@ -28,14 +29,22 @@ function categoriesToTables(categories: string[]): string[] {
 export function registerApp(): void {
   const { db, settings } = getCtx();
   const purgeExpiredLocalData = (): void => {
-    if (settings.get().localDataStorage !== 'auto_delete_24h') return;
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const changed = db.tx(() => {
-      const history = db.run('DELETE FROM history WHERE timestamp < ?', cutoff).changes;
-      const transforms = db.run('DELETE FROM transform_runs WHERE createdAt < ?', cutoff).changes;
-      return history + transforms;
-    });
-    if (changed) broadcast('history:changed', { id: null });
+    const current = settings.get();
+    if (current.localDataStorage === 'auto_delete_24h') {
+      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const changed = db.tx(() => {
+        const history = db.run('DELETE FROM history WHERE timestamp < ?', cutoff).changes;
+        const transforms = db.run('DELETE FROM transform_runs WHERE createdAt < ?', cutoff).changes;
+        return history + transforms;
+      });
+      if (changed) broadcast('history:changed', { id: null });
+    }
+    const retentionDays = current.notetaker.transcriptRetentionDays;
+    if (retentionDays !== null) {
+      const cutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
+      const changed = db.run("UPDATE meetings SET transcript = '[]', summary = NULL, summaryStatus = 'none', searchable = '' WHERE createdAt < ? AND (transcript != '[]' OR summary IS NOT NULL)", cutoff).changes;
+      if (changed) broadcast('meetings:changed', { id: null });
+    }
   };
   purgeExpiredLocalData();
   const purgeTimer = setInterval(purgeExpiredLocalData, 60 * 60 * 1000);
@@ -114,6 +123,13 @@ export function registerApp(): void {
     deleteData(categories) {
       const tables = categoriesToTables(categories);
       db.tx(() => tables.forEach((t) => db.run(`DELETE FROM ${t}`)));
+      if (categories.includes('personalization') || categories.includes('everything')) {
+        settings.patch({
+          personalizationComplete: false,
+          writingSamples: [],
+          styles: DEFAULT_SETTINGS.styles,
+        });
+      }
       if (tables.includes('history')) rmSync(paths.audioDir, { recursive: true, force: true });
       for (const ev of ['history:changed', 'notes:changed', 'meetings:changed'] as const) broadcast(ev, { id: null });
       broadcast('dictionary:changed', null);

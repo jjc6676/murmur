@@ -35,6 +35,14 @@
 .eyebrow { color: var(--foreground-tertiary); font-size: 11px; font-weight: 700; letter-spacing: .12em; }
 .twoFields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 28px; padding-bottom: 24px; }
+.carousel { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 24px; }
+.carousel span { padding: 6px 9px; border-radius: 999px; color: var(--foreground-secondary); background: var(--background-secondary); font-size: 11px; }
+.testimonial { margin: 20px 0; padding: 15px; border-left: 3px solid var(--accent-text); color: var(--foreground-secondary); background: var(--background-secondary); }
+.testimonial footer { margin-top: 7px; color: var(--foreground-tertiary); font-size: 11px; }
+.terms { margin-top: 18px; color: var(--foreground-tertiary) !important; font-size: 11px; }
+.nudge { position: fixed; z-index: 5; top: 56px; left: 50%; display: flex; align-items: center; gap: 18px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); box-shadow: var(--shadow-lg); transform: translateX(-50%); }
+.nudge div { display: grid; gap: 2px; }
+.nudge span { color: var(--foreground-secondary); font-size: 12px; }
 
 .preview {
   min-height: 0;
@@ -77,6 +85,7 @@
 .successMessage { display: flex; align-items: center; gap: 6px; margin-top: 18px; color: var(--success); font-weight: 600; }
 .engineStatus { margin: 22px 0 12px; padding: 12px; border-radius: 8px; background: var(--background-secondary); font-size: 13px; }
 .soundOrb { margin-bottom: 24px; color: #6d36a3; background: #eadbff; }
+.setupActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
 
 .practice { position: relative; width: min(520px, 94%); min-height: 360px; overflow: hidden; border: 1px solid rgb(73 62 48 / .15); border-radius: 14px; background: #fffdf8; box-shadow: 0 24px 60px rgb(73 62 48 / .14); }
 .practiceTabs { display: flex; border-bottom: 1px solid #e8e1d5; }
@@ -84,6 +93,12 @@
 .practiceTabs .activeTab { color: #2a2722; background: #f1ebdf; font-weight: 600; }
 .practice textarea { width: 100%; height: 290px; padding: 24px; resize: none; border: 0; outline: 0; color: #2a2722; background: transparent; font: 15px/1.6 Figtree, sans-serif; }
 .sticker { position: absolute; right: 18px; bottom: 18px; }
+.demo { position: relative; width: min(520px, 94%); margin: 0 auto 14px; padding: 20px 24px; overflow: hidden; border: 1px solid rgb(73 62 48 / .15); border-radius: 12px; color: #514b43; background: #fffdf8; box-shadow: 0 12px 30px rgb(73 62 48 / .1); }
+.demo p { margin: 0 0 5px; font-weight: 700; }
+.demo span { color: #756b5e; font-size: 12px; }
+.demoCursor { position: absolute; right: 20px; top: 18px; width: 2px; height: 24px; background: #8045b8; animation: cursorPulse 1s steps(1) infinite; }
+@keyframes cursorPulse { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .demoCursor { animation: none; } }
 .tip { max-width: 620px; display: flex; gap: 12px; margin: 24px 0; padding: 14px; border-radius: 9px; background: var(--background-secondary); }
 .tip p { margin: 4px 0 0; color: var(--foreground-secondary); font-size: 13px; }
 .savings { grid-template-columns: 1fr auto !important; align-items: center; gap: 12px !important; }

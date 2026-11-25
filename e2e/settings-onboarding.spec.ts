@@ -60,6 +60,12 @@ test('onboarding completes and settings persist across every section', async () 
     await hub.getByRole('button', { name: 'Casual' }).click();
     await hub.getByRole('button', { name: 'Finish setup' }).click();
     await expect(hub.getByText(/Welcome back|Good (morning|afternoon|evening)/)).toBeVisible();
+    const onboardingSettings = await invoke<Settings>(hub, 'settings:get');
+    expect(onboardingSettings.onboardingPagesCompleted.length).toBeGreaterThan(8);
+    expect(onboardingSettings.onboardingPermissions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'microphone', clicked: true, granted: true }),
+      expect.objectContaining({ name: 'accessibility', clicked: true, granted: true }),
+    ]));
 
     await hub.getByRole('button', { name: 'Settings' }).click();
     await expect(hub.getByRole('dialog', { name: 'Settings' })).toBeVisible();
@@ -93,6 +99,8 @@ test('onboarding completes and settings persist across every section', async () 
     await hub.getByLabel('Maximum recording length').selectOption('60');
     expect((await invoke<Settings>(hub, 'settings:get')).notetaker.maxRecordingMin).toBe(60);
     await screenshot(hub, 'murmur-settings-notetaker.png');
+    await hub.getByRole('switch', { name: 'Auto-detect speaker names' }).click();
+    expect((await invoke<Settings>(hub, 'settings:get')).notetaker.autoDetectParticipantNames).toBe(false);
 
     await settingsDialog.getByRole('button', { name: 'Vibe coding', exact: true }).click();
     await hub.getByRole('switch', { name: 'File tagging' }).click();
@@ -118,6 +126,15 @@ test('onboarding completes and settings persist across every section', async () 
     await hub.getByRole('button', { name: 'Add URL' }).click();
     expect((await invoke<Settings>(hub, 'settings:get')).notetaker.calendarIcsSources).toContain('https://example.test/calendar.ics');
     await screenshot(hub, 'murmur-settings-connectors.png');
+    await hub.getByRole('button', { name: 'Connect', exact: true }).first().click();
+    await expect(hub.getByText(/Connected \(UI preview/).first()).toBeVisible();
+    await hub.getByRole('button', { name: 'Disconnect', exact: true }).first().click();
+    await expect(hub.getByRole('heading', { name: /Disconnect Google Calendar/ })).toBeVisible();
+    await hub.getByRole('dialog', { name: /Disconnect Google Calendar/ }).getByRole('button', { name: 'Cancel' }).click();
+    await settingsDialog.getByRole('button', { name: 'Developer', exact: true }).click();
+    await hub.getByRole('switch', { name: 'Debug outlines' }).click();
+    expect((await invoke<Settings>(hub, 'settings:get')).internal.showDebugOutlines).toBe(true);
+    await screenshot(hub, 'murmur-settings-developer.png');
 
     await settingsDialog.getByRole('button', { name: 'MCP', exact: true }).click();
     await hub.getByRole('button', { name: 'Add to Claude' }).click();
@@ -134,6 +151,7 @@ test('onboarding completes and settings persist across every section', async () 
 
     await settingsDialog.getByRole('button', { name: 'Data and Privacy', exact: true }).click();
     await hub.getByLabel('Local data storage').selectOption('auto_delete_24h');
+    await hub.getByRole('dialog', { name: 'Auto-delete after 24 hours?' }).getByRole('button', { name: 'Confirm' }).click();
     expect((await invoke<Settings>(hub, 'settings:get')).localDataStorage).toBe('auto_delete_24h');
     await screenshot(hub, 'murmur-settings-data.png');
 
@@ -142,6 +160,12 @@ test('onboarding completes and settings persist across every section', async () 
     }
 
     await settingsDialog.getByRole('button', { name: 'General', exact: true }).click();
+    await hub.getByRole('button', { name: 'Check for updates' }).click();
+    await expect(hub.getByRole('button', { name: /Updates are installed manually/ })).toBeVisible();
+    await hub.getByRole('button', { name: 'Find the right mic for you →' }).click();
+    await expect(hub.getByRole('heading', { name: 'Find the right mic for you' })).toBeVisible();
+    await screenshot(hub, 'murmur-microphone-quiz.png');
+    await hub.getByRole('dialog', { name: 'Microphone quiz' }).getByRole('button', { name: 'Close' }).click();
     await hub.getByRole('button', { name: 'Change' }).first().click();
     await hub.getByRole('button', { name: 'Add another' }).first().click();
     await hub.getByLabel('Shortcut capture').press('a');

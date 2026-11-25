@@ -10,6 +10,7 @@ export type SettingsSection =
   | 'experimental'
   | 'ai'
   | 'connectors'
+  | 'developer'
   | 'mcp'
   | 'account'
   | 'team'
@@ -29,6 +30,9 @@ interface HubUi {
   settingsSection: SettingsSection;
   openSettings(section?: SettingsSection): void;
   closeSettings(): void;
+  micQuizOpen: boolean;
+  openMicQuiz(): void;
+  closeMicQuiz(): void;
   notificationsOpen: boolean;
   setNotificationsOpen(v: boolean): void;
   diff: { before: string; after: string; title: string } | null;
@@ -43,6 +47,9 @@ export const useHubUi = create<HubUi>((set, get) => ({
   settingsSection: 'general',
   openSettings: (section = 'general') => set({ settingsOpen: true, settingsSection: section }),
   closeSettings: () => set({ settingsOpen: false }),
+  micQuizOpen: false,
+  openMicQuiz: () => set({ micQuizOpen: true }),
+  closeMicQuiz: () => set({ micQuizOpen: false }),
   notificationsOpen: false,
   setNotificationsOpen: (v) => set({ notificationsOpen: v }),
   diff: null,

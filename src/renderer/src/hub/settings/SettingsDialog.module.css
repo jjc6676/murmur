@@ -72,10 +72,15 @@
 
 .version {
   margin-top: auto;
+  display: grid;
+  gap: 5px;
   padding: 12px 8px 8px;
   color: var(--foreground-tertiary);
-  font-size: 12px;
+  font-size: 11px;
 }
+.version strong { color: var(--foreground-secondary); font-size: 12px; }
+.version button { padding: 0; border: 0; color: inherit; background: none; font: inherit; text-align: left; cursor: pointer; }
+.version button:hover { color: var(--foreground); }
 
 .content {
   position: relative;
@@ -193,6 +198,21 @@
 .plan li { display: grid; grid-template-columns: 14px 1fr; align-items: start; gap: 5px; font-size: 10px; line-height: 1.35; }
 .plan li svg { margin-top: 1px; color: var(--success); }
 .promo { margin-top: -8px; }
+
+.quizStep { color: var(--foreground-tertiary); font-size: 11px; font-weight: 700; letter-spacing: .1em; }
+.quizChoices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 20px 0; }
+.quizActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+.whisperDemo { display: flex; align-items: center; gap: 16px; margin: 18px 0; padding: 18px; border-radius: 10px; background: var(--background-secondary); }
+.whisperDemo div { display: grid; gap: 4px; }
+.whisperDemo span { color: var(--foreground-secondary); font-size: 12px; }
+.recommendations { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
+.recommendations article { padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--background-secondary); }
+.recommendations h3 { margin: 10px 0 5px; }
+.recommendations p { margin: 0; color: var(--foreground-secondary); font-size: 12px; line-height: 1.4; }
+.comparison { display: grid; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }
+.comparison [role='row'] { min-width: 650px; display: grid; grid-template-columns: 1.4fr repeat(5, 1fr); }
+.comparison [role='row'] > * { padding: 9px; border-bottom: 1px solid var(--border); }
+.comparison [role='row']:last-child > * { border-bottom: 0; }
 
 @media (max-width: 760px) {
   .overlay { padding: 0; }

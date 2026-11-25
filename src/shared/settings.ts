@@ -27,6 +27,8 @@ export interface Settings {
   onboardingComplete: boolean;
   onboardingStep: string;
   postOnboardingCompleted: boolean;
+  onboardingPagesCompleted: { page: string; completed: boolean }[];
+  onboardingPermissions: { name: 'accessibility' | 'microphone' | 'screen_capture' | 'system_audio'; clicked: boolean; granted: boolean }[];
   profile: {
     firstName: string;
     lastName: string;
@@ -51,6 +53,7 @@ export interface Settings {
   autoDetectLanguage: boolean;
   appLanguage: string | null; // null = system default
   theme: Theme;
+  emailLocale: string | null;
   zoom: number; // 0.8 .. 1.5
   // system
   launchAtLogin: boolean;
@@ -59,6 +62,7 @@ export interface Settings {
   flowBarDock: 'bottom' | 'left' | 'right';
   scratchpadInFlowBar: boolean;
   sounds: boolean;
+  selectedSoundFolder: string | null;
   muteAudioWhileDictating: boolean;
   pauseMediaWhileDictating: boolean;
   notifications: { suggestions: boolean; announcements: boolean; milestones: boolean; processingDelay: boolean };
@@ -83,6 +87,8 @@ export interface Settings {
   focusMode: { enabled: boolean; blockedApps: string[]; blockedUrls: string[] };
   mouseFlow: { dictateButton: number | null; enterButton: number | null };
   vibeCoding: { variableRecognition: boolean; fileTagging: boolean };
+  cursorIdeIntegration: boolean;
+  jabraWearDetectionEnabled: boolean;
   contextAwareness: boolean;
   // engines
   llm: { provider: LlmProvider; claudeModel: string; codexModel: string; timeoutSec: number };
@@ -108,6 +114,13 @@ export interface Settings {
   // data & privacy
   localDataStorage: LocalDataStorage;
   storeAudio: boolean;
+  showPublicInformation: boolean;
+  showNextMeetingInTray: boolean;
+  internal: {
+    shouldSaveAxText: boolean;
+    showDebugOutlines: boolean;
+    preserveIntentsOnRestart: boolean;
+  };
   // ui state
   sidebarOpen: boolean;
   dictionarySort: 'newest' | 'oldest' | 'alpha' | 'starred';
@@ -160,6 +173,8 @@ export const DEFAULT_SETTINGS: Settings = {
   onboardingComplete: false,
   onboardingStep: 'welcome',
   postOnboardingCompleted: false,
+  onboardingPagesCompleted: [],
+  onboardingPermissions: [],
   profile: {
     firstName: '',
     lastName: '',
@@ -198,6 +213,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoDetectLanguage: false,
   appLanguage: null,
   theme: 'light',
+  emailLocale: null,
   zoom: 1,
   launchAtLogin: true,
   showFlowBar: true,
@@ -205,6 +221,7 @@ export const DEFAULT_SETTINGS: Settings = {
   flowBarDock: 'bottom',
   scratchpadInFlowBar: false,
   sounds: true,
+  selectedSoundFolder: null,
   muteAudioWhileDictating: true,
   pauseMediaWhileDictating: false,
   notifications: { suggestions: true, announcements: true, milestones: true, processingDelay: true },
@@ -233,6 +250,8 @@ export const DEFAULT_SETTINGS: Settings = {
   focusMode: { enabled: false, blockedApps: ['slack', 'superhuman'], blockedUrls: ['slack.com', 'mail.google.com', 'superhuman.com', 'x.com', 'twitter.com'] },
   mouseFlow: { dictateButton: null, enterButton: null },
   vibeCoding: { variableRecognition: false, fileTagging: true },
+  cursorIdeIntegration: false,
+  jabraWearDetectionEnabled: false,
   contextAwareness: true,
   llm: { provider: 'claude', claudeModel: 'haiku', codexModel: '', timeoutSec: 60 },
   asr: { model: 'base.en', threads: 4 },
@@ -255,6 +274,13 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   localDataStorage: 'store_normally',
   storeAudio: true,
+  showPublicInformation: true,
+  showNextMeetingInTray: true,
+  internal: {
+    shouldSaveAxText: false,
+    showDebugOutlines: false,
+    preserveIntentsOnRestart: false,
+  },
   sidebarOpen: true,
   dictionarySort: 'newest',
   notesViewType: 'grid',

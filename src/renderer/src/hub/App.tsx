@@ -6,7 +6,7 @@ import { useHubUi, type SettingsSection } from './state';
 import { Shell } from './shell/Shell';
 import { Toaster } from './shell/Toaster';
 import { Onboarding } from './onboarding/Onboarding';
-import { SettingsDialog } from './settings/SettingsDialog';
+import { MicrophoneQuizDialog, SettingsDialog } from './settings/SettingsDialog';
 import { DiffDialog } from './transforms/DiffDialog';
 import { HomePage } from './pages/HomePage';
 import { HistoryPage } from './pages/HistoryPage';
@@ -54,6 +54,7 @@ export function App() {
         </Routes>
       </Shell>
       <SettingsDialog />
+      <MicrophoneQuizDialog />
       <DiffDialog />
       <Toaster />
     </>
