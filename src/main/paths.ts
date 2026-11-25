@@ -1,9 +1,13 @@
 // Filesystem locations. MURMUR_USER_DATA overrides userData (isolated profiles for tests).
+// The portable build (electron-builder sets PORTABLE_EXECUTABLE_DIR) keeps its data next to the exe.
 import { app } from 'electron';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
+export const portableExe = process.env.PORTABLE_EXECUTABLE_FILE || null;
+
 if (process.env.MURMUR_USER_DATA) app.setPath('userData', process.env.MURMUR_USER_DATA);
+else if (process.env.PORTABLE_EXECUTABLE_DIR) app.setPath('userData', join(process.env.PORTABLE_EXECUTABLE_DIR, 'Murmur Data'));
 
 export const paths = {
   get userData(): string {

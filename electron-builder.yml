@@ -26,6 +26,8 @@ win:
   target:
     - target: nsis
       arch: [x64]
+    - target: portable
+      arch: [x64]
   executableName: Murmur
 nsis:
   oneClick: false
@@ -38,4 +40,7 @@ nsis:
   artifactName: Murmur-Setup-${version}.exe
   uninstallDisplayName: Murmur
   runAfterFinish: false
+portable:
+  # Single exe, no install. Data lives in a "Murmur Data" folder next to the exe (see src/main/paths.ts).
+  artifactName: Murmur-${version}-portable.exe
 npmRebuild: false

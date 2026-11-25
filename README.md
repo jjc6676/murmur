@@ -23,7 +23,7 @@ LLM provider (Claude / Codex / none) and the whisper model.
 | `npm run lint` | ESLint (incl. React hooks purity rules) |
 | `npm test` | Vitest unit tests (`tests/unit`) |
 | `npm run e2e` | Builds, then runs the Playwright Electron suite (`e2e/`) |
-| `npm run build` | Per-user NSIS installer in `dist/` (`Murmur-Setup-<version>.exe`) |
+| `npm run build` | `dist/Murmur-Setup-<version>.exe` (per-user installer) and `dist/Murmur-<version>-portable.exe` (no install; data in `Murmur Data` next to the exe) |
 | `python scripts/parity.py` | Side-by-side Flow vs Murmur screenshots in `docs/parity/` |
 | `python scripts/check-inventory.py` | Validates `docs/flow-inventory.md` statuses and code citations |
 

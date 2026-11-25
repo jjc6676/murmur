@@ -5,11 +5,13 @@ import { normalizeCombo } from '@shared/hotkeys';
 import { getCtx } from '../context';
 import { handle } from '../ipc';
 import { applyZoomToAll, positionStatus } from '../windows';
+import { portableExe } from '../paths';
 
 function applySideEffects(next: Settings, prev: Settings | null): void {
   // only register auto-start once the user has finished onboarding (and when it changes afterwards)
   if (!prev || next.launchAtLogin !== prev.launchAtLogin || next.onboardingComplete !== prev.onboardingComplete) {
-    if (app.isPackaged && next.onboardingComplete) app.setLoginItemSettings({ openAtLogin: next.launchAtLogin, args: ['--hidden'] });
+    // Portable build runs from a temp extraction; register the original exe so auto-start survives.
+    if (app.isPackaged && next.onboardingComplete) app.setLoginItemSettings({ openAtLogin: next.launchAtLogin, args: ['--hidden'], ...(portableExe ? { path: portableExe } : {}) });
   }
   if (!prev || next.zoom !== prev.zoom) applyZoomToAll(next.zoom);
   if (!prev || next.theme !== prev.theme) nativeTheme.themeSource = next.theme;
