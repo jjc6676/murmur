@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { HistoryEntry, Stats, VoiceProfile } from '@shared/types';
-import { ArrowRight, Mic2, Sparkles } from 'lucide-react';
-import { api, useEvent } from '../../lib/api';
+import { ArrowRight, Mic2, Search, X } from 'lucide-react';
+import { api, errorMessage, useEvent } from '../../lib/api';
 import { usePatchSettings, useSettings } from '../../lib/settings';
-import { Banner, Button, Card, Dialog, EmptyState, Kbd, Page, PageHeader, Progress, SearchInput } from '../../ui';
+import { Button, Card, Dialog, EmptyState, IconButton, Kbd, Page, PageHeader, Progress, SearchInput } from '../../ui';
 import { DictationList } from '../home/DictationList';
+import { toast } from '../state';
 import s from '../home/Home.module.css';
 
 const USE_CASES = [
@@ -20,14 +21,17 @@ const USE_CASES = [
 ] as const;
 
 const compactNumber = (value: number): string => value >= 1_000 ? `${(value / 1_000).toFixed(1)}K` : value.toLocaleString();
+const compactRemaining = (value: number): string => value >= 1_000 && value % 1_000 === 0 ? `${value / 1_000}K` : compactNumber(value);
 
 export function HomePage() {
   const settings = useSettings();
   const patch = usePatchSettings();
   const [query, setQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
+  const [profileBuilding, setProfileBuilding] = useState(false);
   const [uses, setUses] = useState<string[]>([]);
   const refresh = useCallback(() => {
     void Promise.all([
@@ -47,6 +51,16 @@ export function HomePage() {
   const completeOnboarding = async (selected: string[]) => {
     await patch({ profile: { typingLocations: selected }, postOnboardingCompleted: true });
   };
+  const generateProfile = async () => {
+    setProfileBuilding(true);
+    try {
+      setProfile(await api.stats.generateVoiceProfile());
+    } catch (error) {
+      toast('Couldn’t generate voice profile', { body: errorMessage(error), tone: 'error' });
+    } finally {
+      setProfileBuilding(false);
+    }
+  };
   return (
     <Page wide>
       <div className={s.home}>
@@ -54,17 +68,28 @@ export function HomePage() {
         <div className={s.homeGrid}>
           <div className={s.mainColumn}>
             {bannerVisible && (
-              <Banner
-                title="Try Murmur in another app"
-                body="Murmur works anywhere you type."
-                actions={<Button variant="light" size="sm">Get started</Button>}
-                art={<div className={s.bannerArt} />}
-                onDismiss={() => void patch({ dismissedBanners: [...settings.dismissedBanners, bannerKey] })}
-              />
+              <section className={s.banner}>
+                <div>
+                  <h2>Try Murmur in another app</h2>
+                  <p>Murmur works anywhere you type.</p>
+                </div>
+                <Button variant="light" size="sm">Get started</Button>
+                <IconButton label="Dismiss banner" className={s.bannerClose} onClick={() => void patch({ dismissedBanners: [...settings.dismissedBanners, bannerKey] })}>
+                  <X size={18} />
+                </IconButton>
+              </section>
             )}
-            <SearchInput value={query} onChange={setQuery} placeholder="Search past transcripts" />
+            <div className={s.dictationHeading}>
+              <span>TODAY&apos;S DICTATIONS</span>
+              <div className={s.searchControl}>
+                {searchOpen && <SearchInput value={query} onChange={setQuery} placeholder="Search past transcripts" autoFocus />}
+                <IconButton label={searchOpen ? 'Close search' : 'Search past transcripts'} onClick={() => { setSearchOpen((open) => !open); if (searchOpen) setQuery(''); }}>
+                  {searchOpen ? <X size={18} /> : <Search size={18} />}
+                </IconButton>
+              </div>
+            </div>
             {entries.length ? (
-              <DictationList entries={entries} onChanged={refresh} />
+              <DictationList entries={entries} onChanged={refresh} hideFirstHeading />
             ) : (
               <div className={s.empty}>
                 <EmptyState
@@ -76,25 +101,28 @@ export function HomePage() {
             )}
           </div>
           <aside className={s.sideColumn}>
-            <Card padded className={s.stats} aria-label="Dictation stats">
-              <div className={s.stat}><strong>{compactNumber(stats?.totalWords ?? 0)}</strong><span>total words</span></div>
-              <div className={s.stat}><strong>{stats?.averageWpm ?? 0}</strong><span>wpm</span></div>
-              <div className={s.stat}><strong>{stats?.dayStreak ?? 0}</strong><span>day streak</span></div>
-            </Card>
-            <Card padded className={s.sideCard}>
-              <Sparkles size={22} />
-              <h2>Your Voice Profile</h2>
-              {profile?.status === 'ready' ? (
-                <><p>{profile.headline}</p><Link to="/insights" className={s.sideLink}>View your voice <ArrowRight size={14} /></Link></>
-              ) : (
-                <><p className={s.muted}>Discover how you use your voice.</p><Progress value={stats ? Math.min(100, stats.totalWords / 20) : 0} /><span className={s.muted}>Unlocks in {compactNumber(profile?.wordsUntilUnlock ?? 2_000)} words</span></>
-              )}
+            <Card className={s.insightsCard} aria-label="Dictation stats and voice profile">
+              <div className={s.stats}>
+                <div className={s.stat}><strong>{compactNumber(stats?.totalWords ?? 0)}</strong><span>total words</span></div>
+                <div className={s.stat}><strong>{stats?.averageWpm ?? 0}</strong><span>wpm</span></div>
+                <div className={s.stat}><strong>{stats?.dayStreak ?? 0}</strong><span>day streak</span></div>
+              </div>
+              <div className={s.voiceProfile}>
+                <h2>Your Voice Profile</h2>
+                {profile?.status === 'ready' ? (
+                  <><p>{profile.headline}</p><Link to="/insights" className={s.sideLink}>View your voice <ArrowRight size={14} /></Link></>
+                ) : (stats?.totalWords ?? 0) >= 2_000 ? (
+                  <><p>Discover how you use your voice.</p><Button size="sm" variant="outline" loading={profileBuilding} onClick={() => void generateProfile()}>Generate profile</Button></>
+                ) : (
+                  <><p>Discover how you use your voice.</p><div className={s.unlockRow}><Progress value={stats ? Math.min(100, stats.totalWords / 20) : 0} /><span>Unlocks in {compactRemaining(profile?.wordsUntilUnlock ?? 2_000)} words</span></div></>
+                )}
+              </div>
             </Card>
             <Link to="/notetaker" className={s.sideLink}>
-              <Card padded className={s.sideCard}>
-                <Mic2 size={22} />
+              <Card className={s.notetakerCard}>
+                <div className={s.notetakerArt} aria-hidden="true"><div /><div /><div /></div>
                 <h2>Try Notetaker</h2>
-                <p className={s.muted}>Never miss a detail with accurate transcripts and summaries</p>
+                <p>Never miss a detail with accurate transcripts and summaries</p>
               </Card>
             </Link>
           </aside>

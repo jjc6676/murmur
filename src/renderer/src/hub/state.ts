@@ -50,7 +50,7 @@ export const useHubUi = create<HubUi>((set, get) => ({
   toasts: [],
   toast(t) {
     const id = Math.random().toString(36).slice(2);
-    set({ toasts: [...get().toasts, { ...t, id }] });
+    set({ toasts: [{ ...t, id }] });
     setTimeout(() => get().dismissToast(id), 4500);
   },
   dismissToast: (id) => set({ toasts: get().toasts.filter((x) => x.id !== id) }),

@@ -114,7 +114,7 @@ function DictationRow({ entry, onChanged }: { entry: HistoryEntry; onChanged: ()
   );
 }
 
-export function DictationList({ entries, onChanged }: { entries: HistoryEntry[]; onChanged: () => void }) {
+export function DictationList({ entries, onChanged, hideFirstHeading = false }: { entries: HistoryEntry[]; onChanged: () => void; hideFirstHeading?: boolean }) {
   const groups = new Map<string, HistoryEntry[]>();
   for (const entry of entries) {
     const key = dayKey(entry.timestamp);
@@ -122,12 +122,16 @@ export function DictationList({ entries, onChanged }: { entries: HistoryEntry[];
   }
   return (
     <div className={s.dictationGroups}>
-      {[...groups.entries()].map(([label, rows]) => (
-        <section key={label} aria-labelledby={`dictations-${label}`}>
-          <h2 id={`dictations-${label}`} className={s.groupTitle}>{label === 'Today' ? "TODAY'S DICTATIONS" : `${label.toUpperCase()}'S DICTATIONS`}</h2>
-          <div className={s.dictationList}>{rows.map((entry) => <DictationRow key={entry.id} entry={entry} onChanged={onChanged} />)}</div>
-        </section>
-      ))}
+      {[...groups.entries()].map(([label, rows], index) => {
+        const heading = label === 'Today' ? "TODAY'S DICTATIONS" : `${label.toUpperCase()}'S DICTATIONS`;
+        const showHeading = !hideFirstHeading || index > 0;
+        return (
+          <section key={label} aria-label={showHeading ? undefined : heading} aria-labelledby={showHeading ? `dictations-${label}` : undefined}>
+            {showHeading && <h2 id={`dictations-${label}`} className={s.groupTitle}>{heading}</h2>}
+            <div className={s.dictationList}>{rows.map((entry) => <DictationRow key={entry.id} entry={entry} onChanged={onChanged} />)}</div>
+          </section>
+        );
+      })}
     </div>
   );
 }
