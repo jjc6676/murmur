@@ -1,0 +1,13 @@
+.tour { display: grid; grid-template-columns: 220px 1fr; min-height: 340px; margin: -24px; }
+.art { display: grid; place-items: center; color: #5d397b; background: var(--sand-100, #e9e2d5); }
+.art svg { width: 86px; height: 86px; padding: 22px; border-radius: 50%; background: #eadbff; }
+.copy { display: flex; flex-direction: column; padding: 36px 30px 28px; }
+.copy > span { color: var(--foreground-tertiary); font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+.copy h2 { margin: 14px 0 8px; font-family: 'EB Garamond', serif; font-size: 30px; font-weight: 400; }
+.copy p { color: var(--foreground-secondary); line-height: 1.55; }
+.shortcut { display: flex; align-items: center; gap: 7px; margin-top: 14px; font-size: 13px; }
+.dots { display: flex; gap: 6px; margin-top: auto; }
+.dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
+.dots i.active { background: var(--foreground); }
+.actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+@media (max-width: 600px) { .tour { grid-template-columns: 1fr; } .art { min-height: 150px; } }

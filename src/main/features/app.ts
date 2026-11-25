@@ -27,6 +27,19 @@ function categoriesToTables(categories: string[]): string[] {
 
 export function registerApp(): void {
   const { db, settings } = getCtx();
+  const purgeExpiredLocalData = (): void => {
+    if (settings.get().localDataStorage !== 'auto_delete_24h') return;
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const changed = db.tx(() => {
+      const history = db.run('DELETE FROM history WHERE timestamp < ?', cutoff).changes;
+      const transforms = db.run('DELETE FROM transform_runs WHERE createdAt < ?', cutoff).changes;
+      return history + transforms;
+    });
+    if (changed) broadcast('history:changed', { id: null });
+  };
+  purgeExpiredLocalData();
+  const purgeTimer = setInterval(purgeExpiredLocalData, 60 * 60 * 1000);
+  purgeTimer.unref();
   handle('app', {
     getVersion: () => app.getVersion(),
     getPlatformInfo: () => ({ platform: process.platform, arch: process.arch, userData: paths.userData, isPackaged: app.isPackaged }),
