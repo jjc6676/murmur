@@ -46,6 +46,8 @@ export interface AppApi {
   readClipboard(): string;
   playSound(name: 'start' | 'stop' | 'paste' | 'notification' | 'achievement'): void;
   completeOnboarding(): void;
+  onboardingPractice(kind: 'email' | 'list' | 'chatgpt' | 'cursor', input: string): { output: string; refused: boolean };
+  getOnboardingStats(): { totalWords: number };
   exportData(categories: string[]): string; // returns saved file path
   deleteData(categories: string[]): void;
   importFile(kind: 'dictionary' | 'snippets', path: string): { imported: number; skipped: number };

@@ -52,7 +52,28 @@ test('onboarding completes and settings persist across every section', async () 
 
     await expect(hub.getByRole('heading', { name: 'Talk instead of type' })).toBeVisible();
     await screenshot(hub, 'murmur-onboarding-learn.png');
-    await hub.getByLabel('Practice dictation').fill('This is my first Murmur dictation.');
+    await hub.getByRole('tab', { name: 'Email' }).click();
+    await hub.getByLabel('Practice dictation').fill('hi sam we should meet Tuesday actually Wednesday thanks Morgan');
+    await hub.getByRole('button', { name: 'Polish email' }).click();
+    await expect(hub.getByText('Email polished!')).toBeVisible();
+    await hub.getByRole('tab', { name: 'Notion / list' }).click();
+    await hub.getByLabel('Practice dictation').fill('first research options second write a proposal finally share it');
+    await hub.getByRole('button', { name: 'Create list' }).click();
+    await expect(hub.getByText('List created!')).toBeVisible();
+    await hub.getByRole('tab', { name: 'ChatGPT' }).click();
+    await hub.getByLabel('Practice dictation').fill('Explain why local speech recognition protects privacy');
+    await hub.getByRole('button', { name: 'Generate reply' }).click();
+    await expect(hub.getByText(/\[ai\]/)).toBeVisible();
+    await hub.getByRole('tab', { name: 'Cursor' }).click();
+    await hub.getByLabel('Practice dictation').fill('Add validation to checkout.ts');
+    await hub.getByRole('button', { name: 'Apply to checkout.ts' }).click();
+    await expect(hub.getByText('checkout.ts updated!')).toBeVisible();
+    await hub.getByRole('button', { name: 'Take typing vs. speaking speed test' }).click();
+    const speedTest = hub.getByRole('dialog', { name: 'Typing vs. speaking speed test' });
+    await expect(speedTest).toBeVisible();
+    await speedTest.getByRole('button', { name: 'Start typing test' }).click();
+    await expect(speedTest.getByText('3')).toBeVisible();
+    await speedTest.getByRole('button', { name: 'Close' }).click();
     await continueStep(hub);
 
     await expect(hub.getByRole('heading', { name: 'Make every message sound like you' })).toBeVisible();
@@ -71,6 +92,13 @@ test('onboarding completes and settings persist across every section', async () 
     await expect(hub.getByRole('dialog', { name: 'Settings' })).toBeVisible();
     const settingsDialog = hub.getByRole('dialog', { name: 'Settings' });
     await screenshot(hub, 'murmur-settings-general.png');
+    await hub.getByRole('button', { name: 'System Default' }).click();
+    const languageDialog = hub.getByRole('dialog', { name: 'App Language' });
+    await languageDialog.getByPlaceholder('Search languages').fill('Klingon');
+    await expect(languageDialog.getByText('No matches found')).toBeVisible();
+    await languageDialog.getByPlaceholder('Search languages').fill('English');
+    await languageDialog.getByRole('option', { name: 'English' }).click();
+    expect((await invoke<Settings>(hub, 'settings:get')).appLanguage).toBe('en');
     await hub.getByRole('button', { name: 'Dark' }).click();
     await expect.poll(() => hub.locator('html').getAttribute('data-theme')).toBe('dark');
     await hub.getByRole('button', { name: 'Light' }).click();
@@ -134,6 +162,8 @@ test('onboarding completes and settings persist across every section', async () 
     await settingsDialog.getByRole('button', { name: 'Developer', exact: true }).click();
     await hub.getByRole('switch', { name: 'Debug outlines' }).click();
     expect((await invoke<Settings>(hub, 'settings:get')).internal.showDebugOutlines).toBe(true);
+    await hub.getByRole('switch', { name: 'Auto-detect instruct mode' }).click();
+    expect((await invoke<Settings>(hub, 'settings:get')).internal.isAutoInstructEnabled).toBe(true);
     await screenshot(hub, 'murmur-settings-developer.png');
 
     await settingsDialog.getByRole('button', { name: 'MCP', exact: true }).click();

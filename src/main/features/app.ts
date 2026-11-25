@@ -10,6 +10,7 @@ import { getForegroundApp } from '../native/win32';
 import { ensureHub } from '../windows';
 import { addEntry } from './dictionary';
 import { rowToHistory, type HistoryRow } from './history';
+import { formatForApp } from './formatting';
 import { spawnSync } from 'node:child_process';
 
 const DATA_TABLES: Record<string, string[]> = {
@@ -24,6 +25,16 @@ const DATA_TABLES: Record<string, string[]> = {
 function categoriesToTables(categories: string[]): string[] {
   const cats = categories.includes('everything') ? Object.keys(DATA_TABLES) : categories;
   return cats.flatMap((c) => DATA_TABLES[c] ?? []);
+}
+
+function localList(text: string): string {
+  const normalized = text
+    .replace(/\b(?:first|second|third|fourth|finally|next|then)\b[:,]?\s*/gi, '\n')
+    .split(/\n|[.;]\s+/)
+    .map((item) => item.trim().replace(/^[-*\d.)\s]+/, ''))
+    .filter(Boolean);
+  const items = normalized.length > 1 ? normalized : text.split(/\s*,\s*/).map((item) => item.trim()).filter(Boolean);
+  return items.map((item) => `- ${item[0]?.toUpperCase() ?? ''}${item.slice(1).replace(/[.!?]+$/, '')}`).join('\n');
 }
 
 export function registerApp(): void {
@@ -103,6 +114,39 @@ export function registerApp(): void {
     playSound: (name) => broadcast('sound:play', { name }),
     completeOnboarding() {
       settings.patch({ onboardingComplete: true, onboardingStep: 'done' });
+    },
+    async onboardingPractice(kind, input) {
+      const clean = input.trim();
+      if (!clean) return { output: '', refused: false };
+      if (kind === 'email') {
+        const result = await formatForApp(clean, { processName: 'outlook', title: 'New email' });
+        return { output: result.text, refused: false };
+      }
+      if (kind === 'list') return { output: localList(clean), refused: false };
+      if (kind === 'cursor') {
+        const files = clean.match(/\b[\w.-]+\.(?:[cm]?[jt]sx?|py|go|rs)\b/gi) ?? [];
+        if (files.some((file) => file.toLowerCase() !== 'checkout.ts')) {
+          return { output: 'I can only edit checkout.ts in this practice. Mention checkout.ts and try again.', refused: true };
+        }
+      }
+      if (settings.get().llm.provider === 'none') {
+        return {
+          output: kind === 'chatgpt'
+            ? 'Choose Claude or Codex in AI & Speech settings to generate a local response.'
+            : 'Choose Claude or Codex in AI & Speech settings to apply this instruction to checkout.ts.',
+          refused: true,
+        };
+      }
+      const output = await getCtx().llm({
+        system: kind === 'chatgpt'
+          ? 'Answer the user prompt helpfully and concisely. Output only the answer.'
+          : 'You are a coding practice assistant. Follow the instruction only for checkout.ts. Refuse any other file. Output a concise description of the checkout.ts change.',
+        input: clean,
+      });
+      return { output: output.trim(), refused: false };
+    },
+    getOnboardingStats() {
+      return db.get<{ totalWords: number }>('SELECT COALESCE(SUM(numWords), 0) AS totalWords FROM history') ?? { totalWords: 0 };
     },
     exportData(categories) {
       const tables = categoriesToTables(categories);

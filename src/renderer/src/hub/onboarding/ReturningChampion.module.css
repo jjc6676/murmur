@@ -1,0 +1,6 @@
+.content { display: grid; justify-items: center; padding: 12px 8px 4px; text-align: center; }
+.icon { width: 64px; height: 64px; display: grid; place-items: center; margin-bottom: 16px; border-radius: 50%; color: var(--accent-text); background: var(--accent-soft); }
+.eyebrow { margin: 0; color: var(--foreground-tertiary); font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+.content h2 { margin: 8px 0; font-family: 'EB Garamond', serif; font-size: 34px; font-weight: 400; }
+.content > p:last-of-type { max-width: 390px; margin: 0; color: var(--foreground-secondary); line-height: 1.55; }
+.actions { display: flex; justify-content: center; gap: 8px; margin-top: 24px; }

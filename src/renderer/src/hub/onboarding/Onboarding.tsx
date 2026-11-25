@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, ChevronLeft, Keyboard, Lock, Mic, MonitorUp, Sparkles } from 'lucide-react';
+import { Check, ChevronLeft, Code2, Gauge, Keyboard, List, Lock, Mail, MessageSquare, Mic, MonitorUp, Sparkles } from 'lucide-react';
 import type { StyleContext, StyleTone } from '@shared/types';
 import type { Settings } from '@shared/settings';
 import { applyTone, capitalize, ensureTerminalPunctuation } from '@shared/textPipeline';
 import { api, useEvent } from '../../lib/api';
 import { usePatchSettings, useSettings } from '../../lib/settings';
-import { Button, Checkbox, Input, Kbd, Segmented } from '../../ui';
+import { Button, Checkbox, Dialog, Input, Kbd, Segmented, TextArea } from '../../ui';
 import { Logo } from '../shell/Logo';
 import styles from './Onboarding.module.css';
 
@@ -27,6 +27,13 @@ const OPTIONS = {
   tools: ['Fathom', 'Fireflies', 'Google Meet', 'Grain', 'Granola', 'Notion', 'Otter', 'Plaud', 'Teams', 'Zoom', 'Other', 'None'],
   frustrations: ['Finding old notes', 'Preparing for meetings', 'Taking notes during calls', 'Tracking action items', 'Other'],
   meetingTypes: ['Catch-ups', 'Lectures', 'Client calls', 'Interviews', 'Executive meetings', '1:1s', 'Sales calls', 'Team meetings', 'Other'],
+};
+
+const ROLE_TESTIMONIALS: Record<string, { quote: string; count: string }> = {
+  Developer: { quote: '“I can talk through a change while I stay in the code.”', count: '18,000' },
+  Writer: { quote: '“Murmur lets ideas arrive before I have time to overthink them.”', count: '9,000' },
+  Student: { quote: '“Long assignments feel much easier when I can speak the first draft.”', count: '24,000' },
+  'Founder / CEO': { quote: '“I capture decisions and follow-ups without breaking focus.”', count: '12,000' },
 };
 
 function ChoiceGrid({ values, selected, onChange, multiple = false }: { values: readonly string[]; selected: string[]; onChange: (v: string[]) => void; multiple?: boolean }) {
@@ -58,11 +65,12 @@ function SignupStep({ substep, next }: { substep: number; next: () => void }) {
   const patch = usePatchSettings();
   const profile = s.profile;
   const update = (value: Partial<typeof profile>) => void patch({ profile: { ...profile, ...value } });
+  const testimonial = profile.role ? ROLE_TESTIMONIALS[profile.role] ?? { quote: '“Murmur lets me capture ideas without breaking focus.”', count: '30,000' } : null;
   const content = [
     <div key="profile"><Eyebrow>LOCAL PROFILE</Eyebrow><h1>Let’s get you started</h1><p>Accurate voice-to-text, everywhere you work. Your profile stays on this computer.</p><div className={styles.carousel} aria-label="What Murmur can do"><span>4× faster typing</span><span>Perfectly formatted text</span><span>100+ languages</span><span>Works in any app</span><span>Captures every meeting detail</span></div><div className={styles.twoFields}><label>First name<Input autoFocus value={profile.firstName} onChange={(e) => update({ firstName: e.target.value })}/></label><label>Last name<Input value={profile.lastName} onChange={(e) => update({ lastName: e.target.value })}/></label></div><label>Email <span>(optional)</span><Input type="email" value={profile.email} onChange={(e) => update({ email: e.target.value })}/></label><p className={styles.terms}>Continuing means you agree to Murmur’s local Terms of Service and Privacy Policy. No account is created and no data is uploaded.</p></div>,
     <div key="heard"><Eyebrow>WELCOME {profile.firstName.toUpperCase()}</Eyebrow><h1>Where did you hear about us?</h1><p>This helps us understand how people find Murmur.</p><ChoiceGrid values={OPTIONS.heard} selected={profile.heardAbout ? [profile.heardAbout] : []} onChange={([heardAbout]) => update({ heardAbout })}/></div>,
     <div key="intent"><Eyebrow>MAKE MURMUR YOURS</Eyebrow><h1>How can Murmur help you?</h1><p>Choose one or both. You can change this later.</p><ChoiceGrid multiple values={['Dictation', 'Notetaker']} selected={profile.intents.map((x) => x === 'dictation' ? 'Dictation' : 'Notetaker')} onChange={(values) => update({ intents: values.map((x) => x.toLowerCase() as 'dictation' | 'notetaker') })}/></div>,
-    <div key="role"><Eyebrow>ABOUT YOURSELF</Eyebrow><h1>What best describes your work?</h1><ChoiceGrid values={OPTIONS.roles} selected={profile.role ? [profile.role] : []} onChange={([role]) => update({ role })}/>{profile.role && <blockquote className={styles.testimonial}>“Murmur lets me capture ideas without breaking focus.”<footer>Trusted by people working in {profile.role.toLowerCase()}</footer></blockquote>}<h2>How do you work?</h2><ChoiceGrid values={OPTIONS.work} selected={profile.workType ? [profile.workType] : []} onChange={([workType]) => update({ workType })}/></div>,
+    <div key="role"><Eyebrow>ABOUT YOURSELF</Eyebrow><h1>What best describes your work?</h1><ChoiceGrid values={OPTIONS.roles} selected={profile.role ? [profile.role] : []} onChange={([role]) => update({ role })}/>{profile.role && testimonial && <blockquote className={styles.testimonial}>{testimonial.quote}<footer>Trusted by {testimonial.count} people like you.</footer></blockquote>}<h2>How do you work?</h2><ChoiceGrid values={OPTIONS.work} selected={profile.workType ? [profile.workType] : []} onChange={([workType]) => update({ workType })}/></div>,
     <div key="typing"><Eyebrow>YOUR WORKFLOW</Eyebrow><h1>Where do you type most?</h1><ChoiceGrid multiple values={OPTIONS.typing} selected={profile.typingLocations} onChange={(typingLocations) => update({ typingLocations })}/><h2>What would you like to make easier?</h2><ChoiceGrid multiple values={OPTIONS.writing} selected={profile.writingNeeds} onChange={(writingNeeds) => update({ writingNeeds })}/></div>,
     <div key="meetings"><Eyebrow>YOUR MEETINGS</Eyebrow><h1>Make Notetaker work for you</h1><h2>Meeting tools</h2><ChoiceGrid multiple values={OPTIONS.tools} selected={profile.meetingTools} onChange={(meetingTools) => update({ meetingTools })}/><h2>Biggest frustrations</h2><ChoiceGrid multiple values={OPTIONS.frustrations} selected={profile.meetingFrustrations} onChange={(meetingFrustrations) => update({ meetingFrustrations })}/><h2>Meeting types</h2><ChoiceGrid multiple values={OPTIONS.meetingTypes} selected={profile.meetingTypes} onChange={(meetingTypes) => update({ meetingTypes })}/></div>,
   ];
@@ -156,18 +164,83 @@ function SetupStep({ substep, next }: { substep: number; next: () => void }) {
   return <StepLayout preview={<div className={styles.setupPreview}><div className={styles.soundOrb}><Mic/></div><h2>Private speech, processed locally</h2><p>Your microphone audio is transcribed by Whisper on this computer.</p></div>}>{steps[substep]}<Footer><Button disabled={substep === 1 && !s.autoDetectLanguage && s.languages.length === 0} onClick={next}>Continue</Button></Footer></StepLayout>;
 }
 
+type PracticeKind = 'slack' | 'email' | 'list' | 'chatgpt' | 'cursor';
+
+const PRACTICES: { id: PracticeKind; label: string; placeholder: string; action?: string; icon: typeof Mail }[] = [
+  { id: 'slack', label: 'Messenger / Slack', placeholder: 'Message #team…', icon: MessageSquare },
+  { id: 'email', label: 'Email', placeholder: 'Dictate an email with a correction such as “Tuesday—actually Wednesday”…', action: 'Polish email', icon: Mail },
+  { id: 'list', label: 'Notion / list', placeholder: 'First research options, second write a proposal, finally share it…', action: 'Create list', icon: List },
+  { id: 'chatgpt', label: 'ChatGPT', placeholder: 'Dictate a detailed prompt hands-free…', action: 'Generate reply', icon: Sparkles },
+  { id: 'cursor', label: 'Cursor', placeholder: 'Ask for a change in checkout.ts…', action: 'Apply to checkout.ts', icon: Code2 },
+];
+
+function TypingSpeedTest({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const sample = 'Murmur helps me capture ideas quickly without losing focus.';
+  const [phase, setPhase] = useState<'idle' | 'typingCountdown' | 'typing' | 'speakingReady' | 'speakingCountdown' | 'speaking' | 'done'>('idle');
+  const [countdown, setCountdown] = useState(3);
+  const [typed, setTyped] = useState('');
+  const [spoken, setSpoken] = useState('');
+  const [typingWpm, setTypingWpm] = useState(0);
+  const [speakingWpm, setSpeakingWpm] = useState(0);
+  const startedAt = useRef(0);
+  useEffect(() => {
+    if (phase !== 'typingCountdown' && phase !== 'speakingCountdown') return;
+    setCountdown(3);
+    const timer = window.setInterval(() => setCountdown((value) => {
+      if (value > 1) return value - 1;
+      window.clearInterval(timer);
+      startedAt.current = Date.now();
+      setPhase(phase === 'typingCountdown' ? 'typing' : 'speaking');
+      return 0;
+    }), 1000);
+    return () => window.clearInterval(timer);
+  }, [phase]);
+  const calculateWpm = (text: string) => Math.max(1, Math.round(text.trim().split(/\s+/).filter(Boolean).length / Math.max((Date.now() - startedAt.current) / 60_000, 1 / 60)));
+  const reset = () => { setPhase('idle'); setTyped(''); setSpoken(''); setTypingWpm(0); setSpeakingWpm(0); };
+  return <Dialog open={open} onClose={onClose} title="Typing vs. speaking speed test" description="Complete the same short prompt twice to compare your words per minute.">
+    <div className={styles.speedTest}>
+      {(phase === 'idle' || phase === 'typingCountdown' || phase === 'typing') && <section><strong>1. Type the prompt</strong><p>{sample}</p>{phase === 'typingCountdown' ? <div className={styles.countdown} aria-live="polite">{countdown}</div> : phase === 'typing' ? <><TextArea autoFocus aria-label="Typing speed response" value={typed} onChange={(event) => setTyped(event.target.value)} /><Button disabled={!typed.trim()} onClick={() => { setTypingWpm(calculateWpm(typed)); setPhase('speakingReady'); }}>Finish typing</Button></> : <Button onClick={() => setPhase('typingCountdown')}>Start typing test</Button>}</section>}
+      {(phase === 'speakingReady' || phase === 'speakingCountdown' || phase === 'speaking') && <section><strong>Typing speed: {typingWpm} WPM</strong><p>Now dictate the same prompt into the box.</p>{phase === 'speakingCountdown' ? <div className={styles.countdown} aria-live="polite">{countdown}</div> : phase === 'speaking' ? <><TextArea autoFocus aria-label="Speaking speed response" value={spoken} onChange={(event) => setSpoken(event.target.value)} /><Button disabled={!spoken.trim()} onClick={() => { setSpeakingWpm(calculateWpm(spoken)); setPhase('done'); }}>Finish speaking</Button></> : <Button onClick={() => setPhase('speakingCountdown')}>Start speaking test</Button>}</section>}
+      {phase === 'done' && <section aria-live="polite"><strong>You typed {typingWpm} WPM and spoke {speakingWpm} WPM.</strong><p>{speakingWpm > typingWpm ? `Speaking was ${Math.max(1, Math.round(speakingWpm / typingWpm * 10) / 10)}× faster.` : 'Keep practicing—natural speech gets faster with confidence.'}</p><Button onClick={reset}>Try Again</Button></section>}
+    </div>
+  </Dialog>;
+}
+
 function LearnStep({ next }: { next: () => void }) {
   const s = useSettings();
   const patch = usePatchSettings();
-  const [tab, setTab] = useState<'slack' | 'email' | 'notes'>('slack');
-  const [text, setText] = useState('');
+  const [tab, setTab] = useState<PracticeKind>('slack');
+  const [drafts, setDrafts] = useState<Record<PracticeKind, string>>({ slack: '', email: '', list: '', chatgpt: '', cursor: '' });
+  const [results, setResults] = useState<Partial<Record<PracticeKind, string>>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [minutes, setMinutes] = useState(s.profile.typingMinutesPerDay);
   const [skipGuard, setSkipGuard] = useState(false);
+  const [speedOpen, setSpeedOpen] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const practice = PRACTICES.find((item) => item.id === tab) ?? PRACTICES[0];
+  const Icon = practice.icon;
   useEvent('dictation:state', (state) => { if (state.phase === 'active_ptt' || state.phase === 'active_popo') ref.current?.focus(); });
   const saved = Math.round(minutes * 5 * .7 / 60 * 10) / 10;
-  return <StepLayout preview={<div><div className={styles.demo}><div className={styles.demoCursor}/><p>Go try Murmur in another app</p><span>Open any app, click a textbox, then hold your shortcut and speak.</span></div><div className={styles.practice}><div className={styles.practiceTabs}>{(['slack', 'email', 'notes'] as const).map((item) => <button className={tab === item ? styles.activeTab : ''} key={item} onClick={() => setTab(item)}>{item === 'slack' ? 'Messenger / Slack' : item === 'email' ? 'Email' : 'Notion / list'}</button>)}</div><textarea ref={ref} aria-label="Practice dictation" value={text} placeholder={tab === 'slack' ? 'Message #team…' : tab === 'email' ? 'Write an email…' : 'Create a role-tailored list…'} onChange={(e) => setText(e.target.value)}/>{text.trim().length > 8 && <div className={styles.sticker}><Check/> {tab === 'notes' ? 'List created!' : 'You did it!'}</div>}</div></div>}>
-    <Eyebrow>TRY IT YOURSELF</Eyebrow><h1>Talk instead of type</h1><p>Click the practice textbox, hold <Kbd combo={s.shortcuts.ptt[0] ?? 'your shortcut'}/>, speak, then release. This is a real textbox, so the dictation pipeline can paste directly into it.</p><div className={styles.tip}><Keyboard/><div><strong>Hold for a quick dictation</strong><p>Don’t tap. Hold the shortcut while you talk, then release. Double-tap starts hands-free mode.</p></div></div>{skipGuard && <div className={styles.permissionError}><strong>People who watch this demo get 2× the value from Murmur.</strong><div className={styles.setupActions}><Button variant="ghost" onClick={() => setSkipGuard(false)}>Keep watching</Button><Button variant="outline" onClick={next}>Yes, skip</Button></div></div>}<h2>How much time do you type each day?</h2><label className={styles.savings}><input type="range" min={15} max={240} step={15} value={minutes} onChange={(e) => { const value = Number(e.target.value); setMinutes(value); void patch({ profile: { ...s.profile, typingMinutesPerDay: value } }); }}/><span>{minutes} min/day</span></label><strong>You could save about {saved} hours each week.</strong><Footer><Button variant="ghost" onClick={() => setSkipGuard(true)}>Skip demo</Button><Button disabled={text.trim().length < 3} onClick={next}>Continue</Button></Footer>
+  const runPractice = async () => {
+    if (tab === 'slack' || !drafts[tab].trim()) return;
+    setLoading(true);
+    setError('');
+    try {
+      const result = await api.app.onboardingPractice(tab, drafts[tab]);
+      setResults((current) => ({ ...current, [tab]: result.output }));
+    } catch {
+      setError('That practice request failed. Your dictation is still here—try again or continue.');
+    } finally {
+      setLoading(false);
+    }
+  };
+  const sticker = tab === 'slack' ? 'Message ready!' : tab === 'email' ? 'Email polished!' : tab === 'list' ? 'List created!' : tab === 'chatgpt' ? 'Reply generated!' : 'checkout.ts updated!';
+  return <StepLayout preview={<div><div className={styles.demo}><div className={styles.demoCursor}/><p>Go try Murmur in another app</p><span>Open any app, click a textbox, then hold your shortcut and speak.</span></div><div className={styles.practice}>
+    <div className={styles.practiceTabs} role="tablist">{PRACTICES.map((item) => <button role="tab" aria-selected={tab === item.id} className={tab === item.id ? styles.activeTab : ''} key={item.id} onClick={() => { setTab(item.id); setError(''); }}>{item.label}</button>)}</div>
+    <div className={styles.practiceBody}><span className={styles.practiceLabel}><Icon size={15}/>{practice.label} practice</span><textarea ref={ref} aria-label="Practice dictation" value={drafts[tab]} placeholder={practice.placeholder} onChange={(event) => setDrafts((current) => ({ ...current, [tab]: event.target.value }))}/>{practice.action && <Button size="sm" loading={loading} disabled={!drafts[tab].trim()} onClick={() => void runPractice()}>{results[tab] ? 'Try again' : practice.action}</Button>}{error && <div role="alert" className={styles.practiceError}>{error}<Button size="sm" variant="ghost" onClick={() => void runPractice()}>Retry</Button></div>}{results[tab] && <pre className={styles.practiceResult}>{results[tab]}</pre>}{(tab === 'slack' ? drafts.slack.trim() : results[tab]) && !error && <span className={styles.sticker}><Check size={13}/>{sticker}</span>}</div>
+  </div></div>}>
+    <Eyebrow>TRY IT YOURSELF</Eyebrow><h1>Talk instead of type</h1><p>Choose a real practice, click its textbox, hold <Kbd combo={s.shortcuts.ptt[0] ?? 'your shortcut'}/>, speak, then release. Email and list practice demonstrate local formatting; ChatGPT and Cursor use your configured local AI CLI.</p><div className={styles.tip}><Keyboard/><div><strong>Hold for a quick dictation</strong><p>Don’t tap. Hold the shortcut while you talk, then release. Double-tap starts hands-free mode.</p></div></div>{skipGuard && <div className={styles.permissionError}><strong>People who watch this demo get 2× the value from Murmur.</strong><div className={styles.setupActions}><Button variant="ghost" onClick={() => setSkipGuard(false)}>Keep watching</Button><Button variant="outline" onClick={next}>Yes, skip</Button></div></div>}<h2>How much time do you type each day?</h2><label className={styles.savings}><input type="range" min={10} max={240} step={10} value={minutes} onChange={(event) => { const value = Number(event.target.value); setMinutes(value); void patch({ profile: { ...s.profile, typingMinutesPerDay: value } }); }}/><span>{minutes} min/day</span></label><strong>You could save about {saved} hours each week.</strong><div className={styles.speedAction}><Button variant="outline" icon={<Gauge size={16}/>} onClick={() => setSpeedOpen(true)}>Take typing vs. speaking speed test</Button></div><Footer><Button variant="ghost" onClick={() => setSkipGuard(true)}>Skip demo</Button><Button disabled={!Object.values(drafts).some((value) => value.trim().length >= 3)} onClick={next}>Continue</Button></Footer><TypingSpeedTest open={speedOpen} onClose={() => setSpeedOpen(false)}/>
   </StepLayout>;
 }
 

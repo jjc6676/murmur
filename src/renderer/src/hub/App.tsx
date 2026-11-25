@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 // Hub window root: onboarding gate, shell (title bar + sidebar), routes, global dialogs and toasts.
 import { Route, Routes, useNavigate } from 'react-router-dom';
 import { useEvent } from '../lib/api';
@@ -6,6 +7,7 @@ import { useHubUi, type SettingsSection } from './state';
 import { Shell } from './shell/Shell';
 import { Toaster } from './shell/Toaster';
 import { Onboarding } from './onboarding/Onboarding';
+import { ReturningChampion } from './onboarding/ReturningChampion';
 import { MicrophoneQuizDialog, SettingsDialog } from './settings/SettingsDialog';
 import { DiffDialog } from './transforms/DiffDialog';
 import { HomePage } from './pages/HomePage';
@@ -26,6 +28,9 @@ export function App() {
   const settings = useSettings();
   const navigate = useNavigate();
   const openSettings = useHubUi((s) => s.openSettings);
+  useEffect(() => {
+    document.documentElement.lang = settings.appLanguage ?? navigator.language;
+  }, [settings.appLanguage]);
   const showDiff = useHubUi((s) => s.showDiff);
   useEvent('hub:navigate', ({ route }) => navigate(route));
   useEvent('settings:open', ({ section }) => openSettings((section as SettingsSection | null) ?? 'general'));
@@ -56,6 +61,7 @@ export function App() {
       <SettingsDialog />
       <MicrophoneQuizDialog />
       <DiffDialog />
+      <ReturningChampion />
       <Toaster />
     </>
   );

@@ -87,11 +87,17 @@
 .soundOrb { margin-bottom: 24px; color: #6d36a3; background: #eadbff; }
 .setupActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
 
-.practice { position: relative; width: min(520px, 94%); min-height: 360px; overflow: hidden; border: 1px solid rgb(73 62 48 / .15); border-radius: 14px; background: #fffdf8; box-shadow: 0 24px 60px rgb(73 62 48 / .14); }
-.practiceTabs { display: flex; border-bottom: 1px solid #e8e1d5; }
-.practiceTabs button { flex: 1; padding: 14px; border: 0; color: #756b5e; background: transparent; text-transform: capitalize; cursor: pointer; }
+.practice { position: relative; width: min(590px, 96%); min-height: 410px; overflow: hidden; border: 1px solid rgb(73 62 48 / .15); border-radius: 14px; background: #fffdf8; box-shadow: 0 24px 60px rgb(73 62 48 / .14); }
+.practiceTabs { display: flex; overflow-x: auto; border-bottom: 1px solid #e8e1d5; }
+.practiceTabs button { min-width: max-content; flex: 1; padding: 12px 10px; border: 0; color: #756b5e; background: transparent; cursor: pointer; }
 .practiceTabs .activeTab { color: #2a2722; background: #f1ebdf; font-weight: 600; }
-.practice textarea { width: 100%; height: 290px; padding: 24px; resize: none; border: 0; outline: 0; color: #2a2722; background: transparent; font: 15px/1.6 Figtree, sans-serif; }
+.practiceBody { display: grid; gap: 10px; padding: 18px; }
+.practiceLabel { display: flex; align-items: center; gap: 6px; color: #756b5e; font-size: 12px; font-weight: 700; }
+.practice textarea { width: 100%; height: 118px; padding: 14px; resize: vertical; border: 1px solid #e8e1d5; border-radius: 8px; outline: 0; color: #2a2722; background: transparent; font: 14px/1.5 Figtree, sans-serif; }
+.practice textarea:focus { border-color: #8045b8; box-shadow: 0 0 0 2px rgb(128 69 184 / .14); }
+.practiceBody > button { justify-self: start; }
+.practiceResult { max-height: 105px; margin: 0; padding: 10px; overflow: auto; border-radius: 7px; color: #514b43; background: #f1ebdf; white-space: pre-wrap; font: 12px/1.45 Figtree, sans-serif; }
+.practiceError { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #a12626; font-size: 12px; }
 .sticker { position: absolute; right: 18px; bottom: 18px; }
 .demo { position: relative; width: min(520px, 94%); margin: 0 auto 14px; padding: 20px 24px; overflow: hidden; border: 1px solid rgb(73 62 48 / .15); border-radius: 12px; color: #514b43; background: #fffdf8; box-shadow: 0 12px 30px rgb(73 62 48 / .1); }
 .demo p { margin: 0 0 5px; font-weight: 700; }
@@ -103,6 +109,11 @@
 .tip p { margin: 4px 0 0; color: var(--foreground-secondary); font-size: 13px; }
 .savings { grid-template-columns: 1fr auto !important; align-items: center; gap: 12px !important; }
 .savings input { accent-color: #8045b8; }
+.speedAction { margin-top: 16px; }
+.speedTest section { display: grid; gap: 14px; }
+.speedTest section > p { margin: 0; color: var(--foreground-secondary); line-height: 1.5; }
+.speedTest section > button { justify-self: start; }
+.countdown { min-height: 110px; display: grid; place-items: center; font-family: 'EB Garamond', serif; font-size: 72px; color: var(--accent-text); }
 
 .contextTabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0; }
 .toneChoices { display: grid; gap: 10px; }

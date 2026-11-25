@@ -139,6 +139,11 @@
 .rankList { display: grid; gap: 6px; padding-left: 28px; }
 .rankList li { padding: 9px 10px; border: 1px solid var(--border); border-radius: 7px; cursor: grab; }
 .languageGrid { max-height: 290px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; overflow-y: auto; }
+.localeList { display: grid; gap: 6px; margin-top: 14px; }
+.localeList > button { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 8px; color: var(--foreground); background: var(--card); text-align: left; cursor: pointer; }
+.localeList > button:hover, .localeList > button[aria-selected='true'] { background: var(--row-hover); }
+.localeList span { display: grid; gap: 2px; }
+.localeList small { color: var(--foreground-tertiary); }
 
 .shortcutControls { max-width: 360px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .shortcutControls > span { display: inline-flex; align-items: center; }

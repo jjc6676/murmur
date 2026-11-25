@@ -73,6 +73,8 @@ const LANGUAGES = [
   ['tg', 'Tajik'], ['tt', 'Tatar'], ['te', 'Telugu'], ['bo', 'Tibetan'], ['tk', 'Turkmen'], ['uz', 'Uzbek'], ['yi', 'Yiddish'], ['yo', 'Yoruba'], ['zu', 'Zulu'],
 ] as const;
 
+const APP_LANGUAGES = [{ value: null, label: 'System Default' }, { value: 'en', label: 'English' }] as const;
+
 const SHORTCUTS: { action: ShortcutAction; title: string; description: string }[] = [
   { action: 'ptt', title: 'Push to talk', description: 'Hold the shortcut to dictate something short.' },
   { action: 'popo', title: 'Hands-free mode', description: 'Double-tap to start and stop dictation.' },
@@ -102,6 +104,7 @@ function GeneralSection({ s, patch }: SectionProps) {
   const setSection = useHubUi((x) => x.openSettings);
   const [micOpen, setMicOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
+  const [appLanguageOpen, setAppLanguageOpen] = useState(false);
   return (
     <>
       <SectionTitle>General</SectionTitle>
@@ -127,8 +130,8 @@ function GeneralSection({ s, patch }: SectionProps) {
             <Select value={s.styles[context].cleanupLevel ?? s.cleanupLevel} options={[{ value: 'none', label: 'None' }, { value: 'light', label: 'Light' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }]} onChange={(cleanupLevel) => void patch({ styles: { ...s.styles, [context]: { ...s.styles[context], cleanupLevel } } })} />
           </SettingRow>
         ))}
-        <SettingRow title="App Language" description="Select your preferred Murmur Hub language">
-          <Select value={s.appLanguage ?? 'system'} options={[{ value: 'system', label: 'System default' }, { value: 'en', label: 'English' }]} onChange={(v) => void patch({ appLanguage: v === 'system' ? null : v })} />
+        <SettingRow title="App Language" description="Choose the language used throughout Murmur Hub.">
+          <Button variant="outline" size="sm" onClick={() => setAppLanguageOpen(true)}>{APP_LANGUAGES.find((language) => language.value === s.appLanguage)?.label ?? 'System Default'}</Button>
         </SettingRow>
         <SettingRow title="Email language" description="Cloud account emails are unavailable offline; translation coverage would be rolling out gradually.">
           <Select disabled value={s.emailLocale ?? 'system'} options={[{ value: 'system', label: 'System default' }, { value: 'en', label: 'English' }]} onChange={() => undefined}/>
@@ -142,8 +145,24 @@ function GeneralSection({ s, patch }: SectionProps) {
       </SettingGroup>
       <MicrophoneDialog open={micOpen} onClose={() => setMicOpen(false)} s={s} patch={patch} />
       <LanguageDialog open={languageOpen} onClose={() => setLanguageOpen(false)} s={s} patch={patch} />
+      <AppLanguageDialog open={appLanguageOpen} onClose={() => setAppLanguageOpen(false)} s={s} patch={patch} />
     </>
   );
+}
+
+function AppLanguageDialog({ open, onClose, s, patch }: SectionProps & { open: boolean; onClose: () => void }) {
+  const [query, setQuery] = useState('');
+  const matches = APP_LANGUAGES.filter((language) => language.label.toLowerCase().includes(query.trim().toLowerCase()));
+  return <Dialog open={open} onClose={onClose} title="App Language" description="Choose the language used throughout Murmur Hub. System Default follows Windows.">
+    <SearchInput value={query} onChange={setQuery} placeholder="Search languages" autoFocus />
+    <div className={styles.localeList} role="listbox" aria-label="App languages">
+      {matches.map((language) => <button key={language.value ?? 'system'} type="button" role="option" aria-selected={s.appLanguage === language.value} onClick={() => { void patch({ appLanguage: language.value }); onClose(); }}>
+        <span><strong>{language.label}</strong>{language.value === null && <small>{navigator.language || 'Windows language'}</small>}</span>
+        {s.appLanguage === language.value && <Check size={16}/>}
+      </button>)}
+      {matches.length === 0 && <p role="status" className={styles.muted}>No matches found</p>}
+    </div>
+  </Dialog>;
 }
 
 function MouseSetup({ s, patch }: SectionProps) {
@@ -491,6 +510,9 @@ function DeveloperSection({ s, patch }: SectionProps) {
     <SettingGroup title="Flow Bar">
       <SettingRow title="Flow Bar debug outlines" description="Draw colored bounds around Flow Bar layout regions"><Toggle label="Debug outlines" checked={s.internal.showDebugOutlines} onChange={(showDebugOutlines) => void patch({ internal: { ...s.internal, showDebugOutlines } })}/></SettingRow>
       <SettingRow title="Save accessibility text" description="Store the focused-field UI Automation context with each dictation for debugging"><Toggle label="Save accessibility text" checked={s.internal.shouldSaveAxText} onChange={(shouldSaveAxText) => void patch({ internal: { ...s.internal, shouldSaveAxText } })}/></SettingRow>
+    </SettingGroup>
+    <SettingGroup title="Instruct mode">
+      <SettingRow title="Auto-detect instruct mode" description="Classify ordinary dictation as an instruction when it asks Murmur to perform an action. Uses your configured local AI provider and stays off by default."><Toggle label="Auto-detect instruct mode" checked={s.internal.isAutoInstructEnabled} onChange={(isAutoInstructEnabled) => void patch({ internal: { ...s.internal, isAutoInstructEnabled } })}/></SettingRow>
     </SettingGroup>
     <SettingGroup title="Onboarding testing">
       <SettingRow title="Preserve intents on restart" description="Keep Dictation and Notetaker choices when restarting onboarding"><Toggle label="Preserve intents" checked={s.internal.preserveIntentsOnRestart} onChange={(preserveIntentsOnRestart) => void patch({ internal: { ...s.internal, preserveIntentsOnRestart } })}/></SettingRow>
