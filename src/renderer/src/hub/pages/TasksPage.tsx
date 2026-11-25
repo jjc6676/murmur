@@ -69,6 +69,11 @@ export function TasksPage() {
     });
   };
 
+  const setCompleted = (task: Todo, done: boolean) => {
+    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: done ? 'done' : 'open' } : item));
+    void api.todos.update(task.id, { status: done ? 'done' : 'open' }).catch(() => load());
+  };
+
   return (
     <Page wide>
       <PageHeader title="My Tasks" />
@@ -138,7 +143,7 @@ export function TasksPage() {
                       else next.delete(task.id);
                       return next;
                     })} />
-                    <Checkbox checked={task.status === 'done'} label={`Mark ${task.title} ${task.status === 'done' ? 'incomplete' : 'complete'}`} onChange={(done) => void api.todos.update(task.id, { status: done ? 'done' : 'open' })} />
+                    <Checkbox checked={task.status === 'done'} label={`Mark ${task.title} ${task.status === 'done' ? 'incomplete' : 'complete'}`} onChange={(done) => setCompleted(task, done)} />
                     <div className={styles.taskBody}>
                       <input
                         aria-label={`Edit ${task.title}`}
