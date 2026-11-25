@@ -12,6 +12,7 @@ import { mixPcm16, pcm16ToWav, speechSeconds } from '../audio/wav';
 import { generateMeetingSummary } from '../meetings/summary';
 import { splitRecorderWithMeeting } from '../meetings/split-screen';
 import { getMeeting, updateSearchable } from '../meetings/store';
+import { resolveMicDeviceId } from './engines';
 
 const TRANSCRIBE_INTERVAL_MS = 10_000;
 const BYTES_PER_SECOND = 16_000 * 2;
@@ -269,11 +270,11 @@ export async function startRecording(opts: { title?: string; calendarEventId?: s
     target: 'hub',
   }, { max: 1 });
   addNotificationOnce('TranslationAvailable', 'Live meeting translation', 'Translate a transcript while preserving the detected original language.');
-  void ensureCapture().webContents.executeJavaScript(`window.murmurStartMeeting(${JSON.stringify(settings.micDeviceId)})`, true);
+  void ensureCapture().webContents.executeJavaScript(`window.murmurStartMeeting(${JSON.stringify(resolveMicDeviceId())})`, true);
   setTimeout(() => {
     if (session === current && !state.hasCapturedAudio) {
       showToast({ key: 'NoMeetingAudio', title: "Notetaker isn't getting any audio", body: 'Check your microphone and system-audio permissions, then try again.', tone: 'warning', target: 'hub', actions: [{ id: 'dismiss', label: 'Dismiss' }, { id: 'retry', label: 'Try again' }] }, (action) => {
-        if (action === 'retry') void ensureCapture().webContents.executeJavaScript(`window.murmurStartMeeting(${JSON.stringify(settings.micDeviceId)})`, true);
+        if (action === 'retry') void ensureCapture().webContents.executeJavaScript(`window.murmurStartMeeting(${JSON.stringify(resolveMicDeviceId())})`, true);
       });
     }
   }, 20_000);

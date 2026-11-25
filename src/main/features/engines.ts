@@ -32,6 +32,17 @@ function bluetoothLabel(label: string): boolean {
   return /(airpods?|bluetooth|hands[ -]?free|buds?|headset)/i.test(label);
 }
 
+/** Device to open: the explicit choice, else (Auto-detect) the highest-ranked connected mic, else the system default. */
+export function resolveMicDeviceId(): string {
+  const { micDeviceId, micRanking } = getCtx().settings.get();
+  if (micDeviceId !== 'default') return micDeviceId;
+  for (const label of micRanking) {
+    const device = audioDevices.find((candidate) => candidate.label === label);
+    if (device) return device.deviceId;
+  }
+  return 'default';
+}
+
 ipcMain.on('capture:devices', (_e, list: { deviceId: string; label: string }[]) => {
   const previous = audioDevices;
   audioDevices = list;

@@ -21,6 +21,7 @@ import { getHistoryRow, rowToHistory } from './history';
 import { showNudge, showToast } from '../toasts';
 import { ensureCapture } from '../windows';
 import { microphonePrivacyAllowed, windowsRegion } from '../native/permissions';
+import { resolveMicDeviceId } from './engines';
 
 const MAX_SECONDS = 20 * 60;
 const TAP_MS = 250;
@@ -136,7 +137,7 @@ export function startDictation(mode: DictationMode): void {
   setTimeout(() => {
     if (session && !session.stopping) duckMedia();
   }, 150);
-  ensureCapture().webContents.send('evt:capture:command', { kind: 'dictation', action: 'start', deviceId: s.micDeviceId });
+  ensureCapture().webContents.send('evt:capture:command', { kind: 'dictation', action: 'start', deviceId: resolveMicDeviceId() });
 }
 
 /** Stop capturing and process. Short PTT taps are treated as accidental (with a coaching toast). */
