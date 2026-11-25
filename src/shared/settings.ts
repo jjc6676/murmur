@@ -117,6 +117,30 @@ export interface Settings {
     summaryTemplate: string;
     calendarIcsSources: string[]; // file paths or URLs
     translationLanguage: string | null;
+    autoStartOptInState: 'none' | 'enabled' | 'disabled';
+    longMeetingCheckIn: boolean;
+    autoDetectParticipantNames: boolean;
+    splitScreenJoin: boolean;
+    detectionAction: 'notify' | 'do_nothing';
+    autoOpenSummaryCloseCount: number;
+    earlyNotepadCloseCount: number;
+    autoHidePromptShown: boolean;
+    calendarNotifications: boolean;
+    calendarChoice: 'none' | 'ics' | 'icloud' | 'outlook';
+    calendarNotice: 'off' | 'on';
+    autoShareNotesType: 'all' | 'internal' | 'none';
+    orgInsightsDefault: boolean;
+    quota: { limit: number; remaining: number };
+    meetingCount: number;
+    hasRecordedRealMeeting: boolean;
+    transcriptRetentionDays: number | null;
+    transcriptRetentionWarnedAt: number | null;
+    granolaImported: boolean;
+    granolaExportPromptedAt: number | null;
+    firefliesExportPromptedAt: number | null;
+    aggressiveAutoSave: boolean;
+    unsupportedLanguagesWarned: string[];
+    translationDetectedShownLanguages: string[];
   };
   // data & privacy
   localDataStorage: LocalDataStorage;
@@ -287,6 +311,30 @@ export const DEFAULT_SETTINGS: Settings = {
     summaryTemplate: 'auto',
     calendarIcsSources: [],
     translationLanguage: null,
+    autoStartOptInState: 'none',
+    longMeetingCheckIn: true,
+    autoDetectParticipantNames: true,
+    splitScreenJoin: false,
+    detectionAction: 'notify',
+    autoOpenSummaryCloseCount: 0,
+    earlyNotepadCloseCount: 0,
+    autoHidePromptShown: false,
+    calendarNotifications: true,
+    calendarChoice: 'none',
+    calendarNotice: 'off',
+    autoShareNotesType: 'all',
+    orgInsightsDefault: true,
+    quota: { limit: 50, remaining: 50 },
+    meetingCount: 0,
+    hasRecordedRealMeeting: false,
+    transcriptRetentionDays: null,
+    transcriptRetentionWarnedAt: null,
+    granolaImported: false,
+    granolaExportPromptedAt: null,
+    firefliesExportPromptedAt: null,
+    aggressiveAutoSave: false,
+    unsupportedLanguagesWarned: [],
+    translationDetectedShownLanguages: [],
   },
   localDataStorage: 'store_normally',
   storeAudio: true,

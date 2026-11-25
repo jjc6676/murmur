@@ -83,3 +83,33 @@ test('records, summarizes, organizes, imports, chats, and exposes MCP', async ()
   mcp.kill();
   await app.close();
 });
+
+test('guards active recording lifecycle and preserves transcript corrections', async () => {
+  const { app, hub, userData } = await launchApp({ settings: { postOnboardingCompleted: true } });
+  await hub.getByRole('link', { name: 'Notetaker', exact: true }).click();
+
+  const active = await invoke<{ meetingId: string }>(hub, 'recorder:start', { title: 'Active sync' });
+  await expect(hub.getByRole('button', { name: 'Open live meeting note' })).toBeVisible();
+  await hub.getByRole('button', { name: 'Start', exact: true }).click();
+  await expect(hub.getByRole('dialog', { name: 'A meeting is already recording' })).toBeVisible();
+  await expect(hub.getByRole('button', { name: 'Switch recording' })).toBeVisible();
+  await hub.getByRole('button', { name: 'Cancel' }).click();
+
+  await hub.getByRole('button', { name: 'Stop Notetaker' }).click();
+  await expect(hub.getByRole('dialog', { name: 'Stop Notetaker?' })).toBeVisible();
+  await hub.getByRole('button', { name: 'Stop Notetaker' }).last().click();
+  await expect(hub.getByText('No audio was recorded.')).toBeVisible();
+
+  const transcriptPath = join(userData, 'correction.txt');
+  writeFileSync(transcriptPath, 'You: The original project deadline is Friday.');
+  const imported = await invoke<{ id: string }[]>(hub, 'meetings:importFiles', [transcriptPath]);
+  const meeting = await invoke<{ transcript: { id: string; text: string; edited: boolean }[] }>(hub, 'meetings:get', imported[0].id);
+  const segment = meeting.transcript[0];
+  const corrected = await invoke<{ transcript: { text: string; edited: boolean }[] }>(hub, 'meetings:correctSegment', imported[0].id, segment.id, segment.text, 'The project deadline is Monday.');
+  expect(corrected.transcript[0]).toMatchObject({ text: 'The project deadline is Monday.', edited: true });
+  const reverted = await invoke<{ transcript: { text: string; edited: boolean }[] }>(hub, 'meetings:revertSegment', imported[0].id, segment.id);
+  expect(reverted.transcript[0]).toMatchObject({ text: segment.text, edited: false });
+
+  expect(active.meetingId).toBeTruthy();
+  await app.close();
+});

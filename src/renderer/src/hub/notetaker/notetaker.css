@@ -18,6 +18,9 @@
 .nt-folder { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; }
 .nt-folder-actions { margin-left: auto; display: flex; gap: 6px; }
 .nt-inline-actions { display: flex; gap: 8px; }
+.nt-daily { display: grid; gap: 10px; }
+.nt-daily h2 { margin: 16px 0 2px; font-size: 15px; }
+.nt-brief { white-space: pre-wrap; font: inherit; color: var(--foreground); }
 .meeting-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; }
 .meeting-main { min-width: 0; }
 .meeting-title-input { font: 600 24px Figtree, sans-serif; border: 0; background: transparent; color: var(--foreground); width: min(620px, 100%); padding: 0; }
@@ -29,14 +32,19 @@
 .speaker-chip { font-size: 12px; font-weight: 600; color: var(--speaker-1, var(--accent-text)); }
 .segment-text { line-height: 1.5; }
 .segment-translation { display: block; color: var(--foreground-tertiary); margin-top: 4px; }
+.inline-link { border: 0; padding: 0; background: transparent; color: var(--accent-text); cursor: pointer; }
 .summary-overview { font-size: 16px; line-height: 1.55; }
 .summary-section { margin-top: 24px; }
 .summary-section li { margin: 8px 0; }
 .action-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; }
+.summary-feedback { margin-top: 24px; display: flex; align-items: center; gap: 6px; color: var(--foreground-tertiary); font-size: 12px; }
 .meeting-rail { border-left: 1px solid var(--border); padding-left: 20px; display: flex; flex-direction: column; gap: 14px; }
 .chat-log { min-height: 220px; max-height: 420px; overflow: auto; display: grid; align-content: start; gap: 10px; }
 .chat-bubble { padding: 10px 12px; border-radius: 10px; background: var(--background-secondary); font-size: 13px; white-space: pre-wrap; }
 .chat-bubble[data-role=user] { background: var(--accent-soft); }
+.chat-suggestions { display: flex; flex-wrap: wrap; gap: 6px; }
+.chat-message-actions { display: flex; gap: 4px; margin-top: 8px; }
+.chat-bubble.incomplete { border: 1px solid var(--warning); display: grid; gap: 6px; }
 .chat-form { display: flex; gap: 8px; }
 .chat-form input { min-width: 0; }
 .skill-hints { font-size: 11px; color: var(--foreground-tertiary); }
@@ -61,6 +69,14 @@
 .consent { margin: 12px; padding: 10px; background: var(--warning-soft); border-radius: 8px; font-size: 12px; }
 .idle-recorder { padding: 30px 20px; display: grid; gap: 18px; text-align: center; }
 .recent-note { padding: 10px 0; border: 0; border-bottom: 1px solid var(--border); text-align: left; background: transparent; color: inherit; width: 100%; }
+.recorder-banner { margin: 10px 12px 0; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--background-secondary); display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
+.recorder-banner.warning { background: var(--warning-soft); }
+.recorder-banner > span { min-width: 0; }
+.recorder-crash { min-height: 100vh; padding: 32px; display: grid; place-content: center; justify-items: start; gap: 10px; background: var(--background); color: var(--foreground); }
+.save-failed { display: inline-block; margin-top: 8px; color: var(--danger); font-size: 12px; font-weight: 600; }
+.summary-ready-link { display: block; margin-top: 12px; border: 0; background: transparent; color: var(--accent-text); cursor: pointer; padding: 0; }
+.summary-kicker { margin-bottom: 8px; color: var(--foreground-tertiary); font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; }
+.completion-celebration { min-height: 100px; display: grid; place-items: center; color: var(--accent-text); font-size: 18px; }
 
 @media (max-width: 900px) {
   .meeting-layout { grid-template-columns: 1fr; }

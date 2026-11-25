@@ -143,14 +143,18 @@ export interface MeetingsApi {
   updateNotes(id: string, html: string): void;
   editSegment(id: string, segmentId: string, text: string): Meeting;
   renameSpeaker(id: string, speaker: string, name: string): Meeting;
+  correctSegment(id: string, segmentId: string, expectedText: string, text: string): Meeting;
+  revertSegment(id: string, segmentId: string): Meeting;
   remove(id: string): void;
   regenerateSummary(id: string, template?: string): Meeting;
   chat(id: string, message: string): MeetingChatMessage[];
   chatHistory(id: string): MeetingChatMessage[];
+  saveChatFact(id: string, messageId: string): void;
   extractTodos(id: string): Todo[];
   exportMarkdown(id: string): string; // file path
   importFiles(paths: string[]): MeetingListItem[]; // audio (transcribed locally) or text transcripts
   importGranola(): { imported: number };
+  cancelGranolaImport(): void;
   listFolders(): Folder[];
   createFolder(name: string, description?: string): Folder;
   renameFolder(id: string, name: string): Folder;
@@ -158,14 +162,23 @@ export interface MeetingsApi {
   setFolders(meetingId: string, folderIds: string[]): void;
   upcoming(): CalendarEvent[];
   refreshCalendar(): CalendarEvent[];
+  snoozeCalendar(eventId: string): void;
+  getBrief(eventId: string): { title: string; content: string };
+  rateSummary(id: string, rating: 'up' | 'down' | null, note?: string): void;
+  summaryVersions(id: string): { id: string; source: string; createdAt: string; summary: Meeting['summary'] }[];
 }
 
 export interface RecorderApi {
   getState(): RecorderState;
-  start(opts?: { title?: string; calendarEventId?: string }): RecorderState;
+  start(opts?: { title?: string; calendarEventId?: string; isTourDemo?: boolean; replaceActive?: boolean }): RecorderState;
   stop(): RecorderState;
   pause(): RecorderState;
   resume(): RecorderState;
+  retrySystemAudio(): RecorderState;
+  systemAudioStatus(available: boolean, reason?: 'unavailable' | 'dropped'): RecorderState;
+  splitScreen(): boolean;
+  getWindowState(): { maximized: boolean; width: number; height: number };
+  setWindowSize(width: number, height: number): void;
   /** Capture window pushes mixed PCM16 16k for each source. */
   pushAudio(source: 'mic' | 'system', chunk: ArrayBuffer, level: number): void;
   openNotepad(meetingId?: string): void;

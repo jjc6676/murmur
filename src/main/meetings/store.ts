@@ -17,6 +17,13 @@ export interface MeetingRow {
   language: string;
   audioPath: string | null;
   searchable: string;
+  isTourDemo: number;
+  processingPhase: Meeting['processingPhase'] | null;
+  deliveredSummary: string | null;
+  summaryUpdatedAt: string | null;
+  audioUpdatedAt: string | null;
+  noticePosted: number;
+  autoShareEnabled: number;
 }
 
 function parseJson<T>(value: string | null, fallback: T): T {
@@ -48,6 +55,13 @@ export function rowToMeeting(row: MeetingRow): Meeting {
     importSource: row.importSource,
     isDeleted: Boolean(row.isDeleted),
     language: row.language,
+    isTourDemo: Boolean(row.isTourDemo),
+    processingPhase: row.processingPhase,
+    deliveredSummary: parseJson<MeetingSummary | null>(row.deliveredSummary, null),
+    summaryUpdatedAt: row.summaryUpdatedAt,
+    audioUpdatedAt: row.audioUpdatedAt,
+    noticePosted: Boolean(row.noticePosted),
+    autoShareEnabled: Boolean(row.autoShareEnabled),
   };
 }
 
@@ -81,6 +95,10 @@ export function listMeetings(opts: { query?: string; folderId?: string | null; l
       preview: summary?.overview ?? row.searchable.slice(0, 180),
       folderIds: folderIds(row.id),
       importSource: row.importSource,
+      participantCount: new Set(parseJson<TranscriptSegment[]>(row.transcript, []).map((segment) => segment.speaker)).size,
+      taskCount: getCtx().db.get<{ count: number }>('SELECT COUNT(*) AS count FROM todos WHERE meetingId = ? AND isDeleted = 0', row.id)?.count ?? 0,
+      noticePosted: Boolean(row.noticePosted),
+      autoShareEnabled: Boolean(row.autoShareEnabled),
     };
   });
 }

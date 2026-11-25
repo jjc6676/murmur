@@ -158,7 +158,7 @@ export interface Todo {
 }
 
 // ---------------------------------------------------------------- meetings (notetaker)
-export type MeetingPhase = 'idle' | 'starting' | 'recording' | 'paused' | 'finalizing' | 'done' | 'error';
+export type MeetingPhase = 'idle' | 'starting' | 'awaiting_audio' | 'recording' | 'paused' | 'finalizing' | 'done' | 'error';
 
 export interface TranscriptSegment {
   id: string;
@@ -202,6 +202,13 @@ export interface Meeting {
   importSource: string | null;
   isDeleted: boolean;
   language: string;
+  isTourDemo?: boolean;
+  processingPhase?: 'transcribing' | 'refining' | 'summarizing' | null;
+  deliveredSummary?: MeetingSummary | null;
+  summaryUpdatedAt?: string | null;
+  audioUpdatedAt?: string | null;
+  noticePosted?: boolean;
+  autoShareEnabled?: boolean;
 }
 
 export interface MeetingListItem {
@@ -213,6 +220,10 @@ export interface MeetingListItem {
   preview: string;
   folderIds: string[];
   importSource: string | null;
+  participantCount?: number;
+  taskCount?: number;
+  noticePosted?: boolean;
+  autoShareEnabled?: boolean;
 }
 
 export interface Folder {
@@ -250,6 +261,12 @@ export interface RecorderState {
   systemLevel: number;
   liveSegments: TranscriptSegment[];
   error: string | null;
+  hasCapturedAudio: boolean;
+  systemAudioAvailable: boolean;
+  micSilentSec: number;
+  storageLow: boolean;
+  sleepGapSec: number;
+  processingPhase: 'transcribing' | 'refining' | 'summarizing' | null;
 }
 
 // ---------------------------------------------------------------- notifications

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -8,11 +9,13 @@ import { newId, nowIso } from '../db';
 import { broadcast, callerWindow, handle } from '../ipc';
 import { paths } from '../paths';
 import { showToast } from '../toasts';
+import { ensureHub } from '../windows';
 import { pcm16ToWav, wavToPcm16 } from '../audio/wav';
 import { parseIcs } from '../meetings/ics';
 import { generateMeetingSummary, summaryMarkdown } from '../meetings/summary';
 import { getMeeting, listFolders, listMeetings, updateSearchable } from '../meetings/store';
 import { startRecording } from './recorder';
+let granolaCancelRequested = false;
 
 function requireMeeting(id: string): Meeting {
   const meeting = getMeeting(id);
@@ -100,8 +103,8 @@ function rowToChat(row: { id: string; meetingId: string; role: 'user' | 'assista
 function addTodo(meeting: Meeting, title: string): Todo {
   const id = newId();
   const timestamp = nowIso();
-  getCtx().db.insert('todos', { id, meetingId: meeting.id, title, status: 'open', isArchived: 0, isDeleted: 0, sortOrder: Date.now(), createdAt: timestamp, modifiedAt: timestamp });
-  return { id, meetingId: meeting.id, meetingTitle: meeting.title, title, status: 'open', isArchived: false, sortOrder: Date.now(), createdAt: timestamp, modifiedAt: timestamp };
+  getCtx().db.insert('todos', { id, meetingId: meeting.id, title, status: 'open', priority: 'none', isArchived: 0, isDeleted: 0, sortOrder: Date.now(), createdAt: timestamp, modifiedAt: timestamp });
+  return { id, meetingId: meeting.id, meetingTitle: meeting.title, title, status: 'open', priority: 'none', isArchived: false, sortOrder: Date.now(), createdAt: timestamp, modifiedAt: timestamp };
 }
 
 async function loadCalendar(): Promise<CalendarEvent[]> {
@@ -126,8 +129,9 @@ const reminderTimers = new Map<string, NodeJS.Timeout>();
 function scheduleReminders(events: CalendarEvent[]): void {
   for (const timer of reminderTimers.values()) clearTimeout(timer);
   reminderTimers.clear();
-  const minutes = getCtx().settings.get().notetaker.notifyBeforeMeetingMin;
-  if (!minutes) return;
+  const notetaker = getCtx().settings.get().notetaker;
+  const minutes = notetaker.notifyBeforeMeetingMin;
+  if (!minutes || !notetaker.calendarNotifications) return;
   for (const event of events) {
     const delay = new Date(event.start).getTime() - Date.now() - minutes * 60_000;
     if (delay < 0 || delay > 7 * 24 * 60 * 60 * 1000) continue;
@@ -140,6 +144,25 @@ function scheduleReminders(events: CalendarEvent[]): void {
         if (action === 'start') void startRecording({ title: event.title, calendarEventId: event.id });
       });
     }, delay));
+  }
+}
+
+function enforceTranscriptRetention(): void {
+  const days = getCtx().settings.get().notetaker.transcriptRetentionDays;
+  if (!days) return;
+  const cutoff = Date.now() - days * 86_400_000;
+  const warningCutoff = cutoff + 86_400_000;
+  const rows = getCtx().db.all<{ id: string; title: string; createdAt: string }>("SELECT id, title, createdAt FROM meetings WHERE isDeleted = 0 AND transcript <> '[]'");
+  for (const row of rows) {
+    const created = new Date(row.createdAt).getTime();
+    if (created < cutoff) {
+      getCtx().db.update('meetings', row.id, { transcript: '[]' });
+      updateSearchable(row.id);
+    } else if (created < warningCutoff) {
+      showToast({ key: `Retention:${row.id}`, title: 'Transcript will be removed in 24 hours', body: row.title, tone: 'warning', target: 'hub', actions: [{ id: 'open', label: 'Open meeting' }] }, (action) => {
+        if (action === 'open') ensureHub(true, `/notetaker/${row.id}`);
+      });
+    }
   }
 }
 
@@ -174,8 +197,37 @@ export function registerMeetings(): void {
       const meeting = requireMeeting(id);
       return saveTranscript(id, meeting.transcript.map((segment) => segment.speaker === speaker ? { ...segment, speakerName: trimmed } : segment));
     },
+    correctSegment(id, segmentId, expectedText, text) {
+      const trimmed = text.trim();
+      if (!trimmed) throw new Error('Transcript text cannot be empty');
+      const meeting = requireMeeting(id);
+      const segment = meeting.transcript.find((item) => item.id === segmentId);
+      if (!segment) throw new Error('Transcript line not found');
+      if (segment.text !== expectedText) throw new Error('This line changed elsewhere. Copy your edit, then reload and try again.');
+      const originalText = segment.originalText ?? segment.text;
+      getCtx().db.insert('transcript_corrections', {
+        id: newId(),
+        meetingId: id,
+        artifactRevision: nowIso(),
+        artifactDigest: createHash('sha256').update(meeting.transcript.map((item) => item.text).join('\n')).digest('hex'),
+        entryId: segmentId,
+        originalText,
+        editedText: trimmed,
+        createdAt: nowIso(),
+        revertedAt: null,
+      });
+      return saveTranscript(id, meeting.transcript.map((item) => item.id === segmentId ? { ...item, text: trimmed, originalText, edited: true } : item));
+    },
+    revertSegment(id, segmentId) {
+      const meeting = requireMeeting(id);
+      const segment = meeting.transcript.find((item) => item.id === segmentId);
+      if (!segment?.originalText) return meeting;
+      getCtx().db.run('UPDATE transcript_corrections SET revertedAt = ? WHERE meetingId = ? AND entryId = ? AND revertedAt IS NULL', nowIso(), id, segmentId);
+      return saveTranscript(id, meeting.transcript.map((item) => item.id === segmentId ? { ...item, text: item.originalText!, edited: false, originalText: undefined } : item));
+    },
     remove(id) {
-      requireMeeting(id);
+      const meeting = requireMeeting(id);
+      if (meeting.importSource) getCtx().db.run('INSERT OR REPLACE INTO import_tombstones (source, externalId, deletedAt) VALUES (?, ?, ?)', meeting.importSource, meeting.title, nowIso());
       getCtx().db.update('meetings', id, { isDeleted: 1 });
       broadcast('meetings:changed', { id });
     },
@@ -200,6 +252,18 @@ export function registerMeetings(): void {
     },
     chatHistory(id) {
       return getCtx().db.all<{ id: string; meetingId: string; role: 'user' | 'assistant'; content: string; status: 'done' | 'pending' | 'failed'; createdAt: string }>('SELECT * FROM meeting_chat WHERE meetingId = ? ORDER BY createdAt', id).map(rowToChat);
+    },
+    saveChatFact(id, messageId) {
+      const meeting = requireMeeting(id);
+      const message = getCtx().db.get<{ content: string }>('SELECT content FROM meeting_chat WHERE id = ? AND meetingId = ?', messageId, id);
+      if (!message) throw new Error('Chat response not found');
+      const existing = getCtx().db.get<{ id: string; content: string; versions: string }>("SELECT id, content, versions FROM memory_docs WHERE folder = 'knowledge' AND title = 'Saved facts'");
+      if (existing) {
+        getCtx().db.update('memory_docs', existing.id, { content: `${existing.content}\n- ${message.content}`, source: `Meeting: ${meeting.title}`, changedBy: 'user', modifiedAt: nowIso() });
+      } else {
+        getCtx().db.insert('memory_docs', { id: newId(), folder: 'knowledge', title: 'Saved facts', content: `- ${message.content}`, source: `Meeting: ${meeting.title}`, changedBy: 'user', versions: '[]', modifiedAt: nowIso() });
+      }
+      broadcast('memory:status', { state: 'idle', lastRunAt: null, docCount: getCtx().db.get<{ count: number }>('SELECT COUNT(*) AS count FROM memory_docs')?.count ?? 0, sources: { meetings: 0, dictations: 0, notes: 0 }, error: null });
     },
     extractTodos(id) {
       const meeting = requireMeeting(id);
@@ -226,18 +290,27 @@ export function registerMeetings(): void {
     importGranola() {
       const cache = join(app.getPath('appData'), 'Granola', 'cache-v3.json');
       if (!existsSync(cache)) throw new Error('Granola cache not found. Install and open Granola once, then try again.');
+      granolaCancelRequested = false;
       const raw: unknown = JSON.parse(readFileSync(cache, 'utf8'));
       const documents = Array.isArray(raw) ? raw : Object.values(raw as Record<string, unknown>).find(Array.isArray) ?? [];
       let imported = 0;
       for (const item of documents as Record<string, unknown>[]) {
+        if (granolaCancelRequested) break;
         const title = typeof item.title === 'string' ? item.title : `Granola meeting ${imported + 1}`;
+        const deleted = getCtx().db.get('SELECT 1 FROM import_tombstones WHERE source = ? AND externalId = ?', 'granola', title);
+        if (deleted) continue;
         const transcript = typeof item.transcript === 'string' ? item.transcript : typeof item.notes === 'string' ? item.notes : '';
         if (!transcript) continue;
         createImportedMeeting(`${title}.txt`, parseTranscript(transcript), 'granola');
         imported++;
       }
+      const settings = getCtx().settings.get();
+      if (!granolaCancelRequested) getCtx().settings.set('notetaker', { ...settings.notetaker, granolaImported: true });
       broadcast('meetings:changed', { id: null });
       return { imported };
+    },
+    cancelGranolaImport() {
+      granolaCancelRequested = true;
     },
     listFolders,
     createFolder(name, description = '') {
@@ -270,6 +343,36 @@ export function registerMeetings(): void {
       return getCtx().db.kvGet<CalendarEvent[]>('notetaker.calendar', []).filter((event) => new Date(event.end).getTime() >= Date.now());
     },
     refreshCalendar: loadCalendar,
+    snoozeCalendar(eventId) {
+      const event = getCtx().db.kvGet<CalendarEvent[]>('notetaker.calendar', []).find((item) => item.id === eventId);
+      if (!event) throw new Error('Calendar event not found');
+      setTimeout(() => showToast({ key: `CalendarSnooze:${event.id}`, title: event.title, body: 'Your meeting starts soon.', tone: 'info', target: 'hub', actions: event.conferenceUrl ? [{ id: 'join', label: 'Join meeting' }] : undefined }, (action) => {
+        if (action === 'join' && event.conferenceUrl) void shell.openExternal(event.conferenceUrl);
+      }), 2 * 60_000);
+    },
+    getBrief(eventId) {
+      const event = getCtx().db.kvGet<CalendarEvent[]>('notetaker.calendar', []).find((item) => item.id === eventId);
+      if (!event) throw new Error('Calendar event not found');
+      const prior = listMeetings({ query: event.title, limit: 5 });
+      const content = prior.length
+        ? prior.map((meeting) => `• ${meeting.title}: ${meeting.preview || 'No summary available'}`).join('\n')
+        : 'No previous meetings with a similar title were found.';
+      return { title: `Brief for ${event.title}`, content };
+    },
+    rateSummary(id, rating, note = '') {
+      const meeting = requireMeeting(id);
+      if (!meeting.summary) throw new Error('No summary to rate');
+      if (rating === null) {
+        getCtx().db.run('DELETE FROM meeting_feedback WHERE meetingId = ?', id);
+        return;
+      }
+      getCtx().db.run('INSERT INTO meeting_feedback (meetingId, rating, note, summaryGeneratedAt, createdAt) VALUES (?, ?, ?, ?, ?) ON CONFLICT(meetingId) DO UPDATE SET rating = excluded.rating, note = excluded.note, summaryGeneratedAt = excluded.summaryGeneratedAt, createdAt = excluded.createdAt', id, rating, note.trim(), meeting.summary.generatedAt, nowIso());
+    },
+    summaryVersions(id) {
+      requireMeeting(id);
+      return getCtx().db.all<{ id: string; source: string; createdAt: string; content: string }>('SELECT id, source, createdAt, content FROM meeting_versions WHERE meetingId = ? ORDER BY createdAt DESC', id).map((row) => ({ id: row.id, source: row.source, createdAt: row.createdAt, summary: JSON.parse(row.content) as Meeting['summary'] }));
+    },
   });
   void loadCalendar();
+  enforceTranscriptRetention();
 }

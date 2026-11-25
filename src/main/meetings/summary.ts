@@ -1,6 +1,6 @@
 import type { Meeting, MeetingSummary } from '@shared/types';
 import { getCtx } from '../context';
-import { nowIso } from '../db';
+import { newId, nowIso } from '../db';
 import { getMeeting, updateSearchable } from './store';
 
 const TEMPLATE_PROMPTS: Record<string, string> = {
@@ -49,7 +49,9 @@ export async function generateMeetingSummary(id: string, requestedTemplate?: str
       template,
     };
     const title = /^Untitled (meeting|note)$/i.test(meeting.title) ? summary.title : meeting.title;
-    getCtx().db.update('meetings', id, { title, summary: JSON.stringify(summary), summaryStatus: 'ready' });
+    if (meeting.summary) getCtx().db.insert('meeting_versions', { id: newId(), meetingId: id, content: JSON.stringify(meeting.summary), source: 'previous_summary', transformId: null, prompt: template, createdAt: nowIso() });
+    getCtx().db.insert('meeting_versions', { id: newId(), meetingId: id, content: JSON.stringify(summary), source: 'generated_summary', transformId: null, prompt: template, createdAt: nowIso() });
+    getCtx().db.update('meetings', id, { title, summary: JSON.stringify(summary), deliveredSummary: JSON.stringify(meeting.deliveredSummary ?? summary), summaryStatus: 'ready', summaryUpdatedAt: summary.generatedAt, processingPhase: null });
     updateSearchable(id);
     return getMeeting(id)!;
   } catch (error) {

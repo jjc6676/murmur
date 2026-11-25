@@ -1,30 +1,50 @@
 import { createRoot } from 'react-dom/client';
-import { useEffect, useRef, useState } from 'react';
-import { Copy, Minus, Pause, Play, Square, X } from 'lucide-react';
+import { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
+import { Columns2, Copy, Minus, Pause, Play, RotateCw, Square, X } from 'lucide-react';
 import type { Meeting, MeetingListItem, RecorderState, TranscriptSegment } from '@shared/types';
 import '../styles/base.css';
 import '../hub/notetaker/notetaker.css';
 import { api, useEvent } from '../lib/api';
-import { initSettings, useSettings } from '../lib/settings';
-import { Button, IconButton, Tabs, TextArea } from '../ui';
+import { initSettings, usePatchSettings, useSettings } from '../lib/settings';
+import { Button, Dialog, IconButton, Tabs, TextArea } from '../ui';
 
 type RecorderTab = 'thoughts' | 'transcript' | 'summary';
-const IDLE: RecorderState = { phase: 'idle', meetingId: null, startedAt: null, elapsedSec: 0, micLevel: 0, systemLevel: 0, liveSegments: [], error: null };
+const IDLE: RecorderState = { phase: 'idle', meetingId: null, startedAt: null, elapsedSec: 0, micLevel: 0, systemLevel: 0, liveSegments: [], error: null, hasCapturedAudio: false, systemAudioAvailable: true, micSilentSec: 0, storageLow: false, sleepGapSec: 0, processingPhase: null };
 
 function formatTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
   const rest = Math.floor(seconds % 60).toString().padStart(2, '0');
   return `${minutes}:${rest}`;
 }
+class RecorderErrorBoundary extends Component<{ children: ReactNode }, { crashed: boolean }> {
+  state = { crashed: false };
+
+  static getDerivedStateFromError(): { crashed: boolean } {
+    return { crashed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error('Recorder renderer crashed', error, info.componentStack);
+  }
+
+  render(): ReactNode {
+    if (!this.state.crashed) return this.props.children;
+    return <div className="recorder-crash"><h1>Something went wrong</h1><p>Reload to keep recording. Your audio is still being saved safely.</p><Button icon={<RotateCw size={16} />} onClick={() => window.location.reload()}>Reload</Button></div>;
+  }
+}
+
 
 function RecorderApp() {
   const settings = useSettings();
+  const patchSettings = usePatchSettings();
   const [state, setState] = useState<RecorderState>(IDLE);
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [recent, setRecent] = useState<MeetingListItem[]>([]);
   const [tab, setTab] = useState<RecorderTab>('thoughts');
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
+  const [saveFailed, setSaveFailed] = useState(false);
+  const [completionOpen, setCompletionOpen] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const loadMeeting = async (meetingId: string | null) => {
@@ -45,6 +65,18 @@ function RecorderApp() {
       void loadMeeting(nextState.meetingId);
     });
   }, []);
+  useEffect(() => {
+    let timer: number | undefined;
+    const persistSize = () => {
+      clearTimeout(timer);
+      timer = window.setTimeout(() => void api.recorder.setWindowSize(window.outerWidth, window.outerHeight), 250);
+    };
+    window.addEventListener('resize', persistSize);
+    return () => {
+      window.removeEventListener('resize', persistSize);
+      clearTimeout(timer);
+    };
+  }, []);
   useEvent('recorder:state', (next) => {
     setState(next);
     if (next.meetingId && next.meetingId !== meeting?.id) void loadMeeting(next.meetingId);
@@ -56,7 +88,7 @@ function RecorderApp() {
   });
   useEvent('notepad:open', ({ meetingId }) => void loadMeeting(meetingId));
 
-  const active = ['recording', 'paused', 'finalizing'].includes(state.phase);
+  const active = ['awaiting_audio', 'recording', 'paused', 'finalizing'].includes(state.phase);
   const segments: TranscriptSegment[] = meeting?.transcript.length ? meeting.transcript : state.liveSegments;
 
   if (!active && !meeting) {
@@ -85,20 +117,27 @@ function RecorderApp() {
           {state.phase === 'recording' && <IconButton label="Pause" size="sm" onClick={() => void api.recorder.pause()}><Pause size={15} /></IconButton>}
           {state.phase === 'paused' && <IconButton label="Resume" size="sm" onClick={() => void api.recorder.resume()}><Play size={15} /></IconButton>}
           {active && <IconButton label="Stop listening" size="sm" onClick={() => void api.recorder.stop()}><Square size={15} /></IconButton>}
+          {active && <IconButton label="Split screen with meeting" size="sm" onClick={() => void api.recorder.splitScreen()}><Columns2 size={15} /></IconButton>}
           <IconButton label="Minimize" size="sm" onClick={() => void api.app.minimizeWindow()}><Minus size={15} /></IconButton>
           <IconButton label="Close" size="sm" onClick={() => void api.app.closeWindow()}><X size={15} /></IconButton>
         </div>
       </header>
+      {state.phase === 'awaiting_audio' && <div className="recorder-banner" role="status"><strong>Waiting for audio…</strong><span>Notetaker will start the timer when your first audio arrives.</span></div>}
+      {!state.systemAudioAvailable && active && <div className="recorder-banner warning" role="alert"><span><strong>Only your microphone is recording.</strong> Remote participants may be missing.</span><Button size="sm" variant="outline" onClick={() => void api.recorder.retrySystemAudio()}>Turn on system audio</Button></div>}
+      {state.micSilentSec >= 180 && active && <div className="recorder-banner warning" role="alert"><strong>Microphone unavailable</strong><span>Stop and resume the meeting to reconnect your microphone.</span></div>}
+      {state.storageLow && <div className="recorder-banner warning" role="alert"><strong>Storage almost full</strong><span>Free up space on your computer to keep recording.</span></div>}
+      {settings.notetaker.translationLanguage && <div className="recorder-banner"><span>Translating to {settings.notetaker.translationLanguage}. Your original transcript is preserved.</span><Button size="sm" variant="ghost" onClick={() => void patchSettings({ notetaker: { translationLanguage: null } })}>Turn off</Button></div>}
       {settings.notetaker.consentChatNotice && <div className="consent">Always get consent when transcribing others. <Button size="sm" variant="ghost" icon={<Copy size={13} />} onClick={() => void api.app.copyText(settings.notetaker.consentMessage)}>Copy consent message</Button></div>}
-      {state.error && <div className="consent">{state.error}</div>}
-      <div className="recorder-tabs"><Tabs tabs={[{ id: 'thoughts', label: 'My thoughts' }, { id: 'transcript', label: 'Transcript' }, { id: 'summary', label: 'Summary' }]} value={tab} onChange={setTab} /></div>
+      {state.error && <div className="recorder-banner warning" role="alert">{state.error}</div>}
+      <div className="recorder-tabs"><Tabs tabs={[{ id: 'thoughts', label: 'My thoughts' }, ...(settings.notetaker.showLiveTranscript ? [{ id: 'transcript' as const, label: 'Transcript' }] : []), { id: 'summary', label: 'Summary' }]} value={tab} onChange={setTab} /></div>
       <div className="recorder-body" ref={scrollRef}>
-        {tab === 'thoughts' && <TextArea className="thoughts-editor" value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={() => { if (meeting) void api.meetings.updateNotes(meeting.id, notes); }} placeholder="Write your notes here. We'll make a separate summary at the end." />}
-        {tab === 'transcript' && <div className="recorder-transcript">{segments.length ? segments.map((segment, index) => <div className="recorder-segment" key={segment.id}><span className="speaker-chip" style={{ color: `var(--speaker-${index % 8 + 1})` }}>{segment.speakerName}</span><div>{segment.text}{segment.translatedText && <span className="segment-translation">{segment.translatedText}</span>}</div></div>) : <div className="nt-empty"><strong>Welcome to Notetaker!</strong><span className="nt-subtle">Try saying “Hi Notetaker”.</span></div>}</div>}
-        {tab === 'summary' && (meeting?.summary ? <><p className="summary-overview">{meeting.summary.overview}</p>{meeting.summary.sections.map((section) => <section className="summary-section" key={section.heading}><h2>{section.heading}</h2><ul>{section.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul></section>)}</> : <div className="nt-empty"><strong>{state.phase === 'finalizing' ? 'Finishing up…' : 'Summary appears after you stop'}</strong><span className="nt-subtle">Murmur will find decisions and next steps.</span></div>)}
+        {tab === 'thoughts' && <><TextArea className="thoughts-editor" value={notes} onChange={(event) => { setNotes(event.target.value); setSaveFailed(false); }} onBlur={() => { if (meeting) void api.meetings.updateNotes(meeting.id, notes).catch(() => setSaveFailed(true)); }} placeholder="Write your notes here. We'll make a separate summary at the end." />{saveFailed && <span className="save-failed" role="alert">Couldn't save changes.</span>}{meeting?.summary && <button type="button" className="summary-ready-link" onClick={() => setTab('summary')}>Your summary is ready. Check it out →</button>}</>}
+        {tab === 'transcript' && <div className="recorder-transcript">{segments.length ? <><p className="nt-subtle">After the meeting, Murmur improves the transcript and adds speaker names.</p>{segments.map((segment, index) => <div className="recorder-segment" key={segment.id}><span className="speaker-chip" title="Speaker names will be added after the meeting" style={{ color: `var(--speaker-${index % 8 + 1})` }}>{segment.speakerName}</span><div>{segment.text}{segment.translatedText && <span className="segment-translation">{segment.translatedText}</span>}</div></div>)}</> : <div className="nt-empty"><strong>Welcome to Notetaker!</strong><span className="nt-subtle">Try saying “Hi Notetaker”.</span><span className="nt-subtle">You're offline? Don’t worry, we’re still saving audio locally.</span></div>}</div>}
+        {tab === 'summary' && (meeting?.summary ? <><div className="summary-kicker">Enhanced Summary</div><p className="summary-overview">{meeting.summary.overview}</p>{meeting.summary.sections.map((section) => <section className="summary-section" key={section.heading}><h2>{section.heading}</h2><ul>{section.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul></section>)}</> : <div className="nt-empty"><strong>{state.processingPhase === 'transcribing' ? 'Transcribing audio…' : state.processingPhase === 'refining' ? 'Refining transcript…' : state.processingPhase === 'summarizing' ? 'Summarizing meeting…' : state.phase === 'finalizing' ? 'Finishing up…' : 'Summary appears after you stop'}</strong><span className="nt-subtle">Murmur turns your meeting into a quick read with decisions and next steps.</span></div>)}
       </div>
+      <Dialog open={completionOpen && state.phase === 'done' && Boolean(meeting?.summary) && settings.notetaker.meetingCount === 1} onClose={() => setCompletionOpen(false)} title="Your first meeting note is ready!" description="Murmur captured the conversation and created a quick summary." footer={<><Button variant="ghost" onClick={() => setCompletionOpen(false)}>Not now</Button><Button onClick={() => { setTab('summary'); setCompletionOpen(false); }}>Open meeting note</Button></>}><div className="completion-celebration"><strong>2 min read</strong></div></Dialog>
     </div>
   );
 }
 
-void initSettings().then(() => createRoot(document.getElementById('root')!).render(<RecorderApp />));
+void initSettings().then(() => createRoot(document.getElementById('root')!).render(<RecorderErrorBoundary><RecorderApp /></RecorderErrorBoundary>));
