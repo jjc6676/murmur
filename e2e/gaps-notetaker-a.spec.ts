@@ -6,7 +6,7 @@ test('introduces first-time Notetaker and explains calendar enrichment', async (
   const { app, hub } = await launchApp({ settings: { postOnboardingCompleted: true } });
   await hub.getByRole('link', { name: 'Notetaker', exact: true }).click();
 
-  await expect(hub.getByRole('heading', { name: 'Welcome to Murmur Notetaker' })).toBeVisible();
+  await expect(hub.getByRole('dialog', { name: 'Welcome to Murmur Notetaker' })).toBeVisible();
   await expect(hub.getByText(/local transcript, creates a clear summary/i)).toBeVisible();
   await hub.getByRole('button', { name: 'Maybe later' }).click();
   await expect(hub.getByText(/Add participant names, accurate speaker labels, action items, and a full summary/i)).toBeVisible();
@@ -40,7 +40,7 @@ test('offers auto-start and plays the first local speaker segment', async () => 
   await hub.getByRole('link', { name: 'Notetaker', exact: true }).click();
   await hub.getByRole('link', { name: /Test meeting/ }).first().click();
   await hub.getByRole('tab', { name: 'Transcript' }).click();
-  await expect(hub.getByText(/Translated from EN\. Original available\./).first()).toBeVisible();
+  await expect(hub.getByText(/Translated from ENGLISH\. Original available\./).first()).toBeVisible();
   const play = hub.getByRole('button', { name: /Play Speaker 1 clip/ }).first();
   await play.click();
   await expect(hub.getByRole('button', { name: /Stop Speaker 1 clip/ }).first()).toBeVisible();
