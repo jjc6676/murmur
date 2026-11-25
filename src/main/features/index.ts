@@ -14,6 +14,8 @@ import { registerStats } from './stats';
 import { registerNotifications } from './notifications';
 import { registerEngines } from './engines';
 import { registerMcp } from './mcp';
+import { registerSkills } from './skills';
+import { registerMemory } from './memory';
 
 export function registerFeatures(): void {
   registerApp();
@@ -31,4 +33,6 @@ export function registerFeatures(): void {
   registerNotifications();
   registerEngines();
   registerMcp();
+  registerSkills();
+  registerMemory();
 }

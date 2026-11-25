@@ -1,5 +1,6 @@
 // The complete renderer-callable API surface. Each namespace is implemented in src/main/features/<ns>.ts.
 import type { DeepPartial, Settings, ShortcutAction } from './settings';
+import type { MemoryDoc, MemoryStatus, Skill } from './types';
 import type {
   ActiveAppInfo,
   AppNotification,
@@ -194,6 +195,25 @@ export interface EnginesApi {
   listAudioDevices(): { deviceId: string; label: string }[];
 }
 
+export interface SkillsApi {
+  list(): Skill[];
+  save(skill: Omit<Skill, 'id' | 'builtIn' | 'createdAt' | 'modifiedAt'> & { id?: string }): Skill;
+  remove(id: string): void;
+  /** Run a skill over one or more meetings (or recent meetings when empty); returns markdown output. */
+  run(skillId: string, meetingIds: string[]): string;
+}
+
+export interface MemoryApi {
+  status(): MemoryStatus;
+  /** Build/refresh memory documents from local meetings, dictations and notes (runs in background). */
+  build(): MemoryStatus;
+  list(): MemoryDoc[];
+  get(id: string): MemoryDoc | null;
+  save(id: string, content: string): MemoryDoc;
+  search(query: string): { docId: string; title: string; line: number; text: string }[];
+  deleteAll(): void;
+}
+
 export interface McpApi {
   serverCommand(): { command: string; args: string[]; configJson: string };
 }
@@ -214,4 +234,6 @@ export interface MurmurApi {
   notifications: NotificationsApi;
   engines: EnginesApi;
   mcp: McpApi;
+  skills: SkillsApi;
+  memory: MemoryApi;
 }

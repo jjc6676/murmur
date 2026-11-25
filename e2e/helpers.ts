@@ -44,5 +44,5 @@ export async function waitForWindow(app: ElectronApplication, urlPart: string, t
 
 /** Invoke a Murmur API method from a renderer page. */
 export function invoke<T>(page: Page, channel: string, ...args: unknown[]): Promise<T> {
-  return page.evaluate(([ch, a]) => (window as unknown as { murmur: { invoke(c: string, ...x: unknown[]): Promise<unknown> } }).murmur.invoke(ch as string, ...(a as unknown[])), [channel, args] as const) as Promise<T>;
+  return page.evaluate(([ch, a]) => (globalThis as unknown as { murmur: { invoke(c: string, ...x: unknown[]): Promise<unknown> } }).murmur.invoke(ch as string, ...(a as unknown[])), [channel, args] as const) as Promise<T>;
 }

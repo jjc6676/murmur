@@ -40,6 +40,16 @@ export function FlowBar() {
   const [hover, setHover] = useState(false);
   const [menu, setMenu] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const hiddenUntil = settings.flowBarHiddenUntil;
+  const [snoozed, setSnoozed] = useState(false);
+  // "Hide for 1 hour": hidden until the timestamp passes, then reappear on our own
+  useEffect(() => {
+    const left = hiddenUntil - Date.now();
+    setSnoozed(left > 0);
+    if (left <= 0) return;
+    const t = setTimeout(() => setSnoozed(false), left);
+    return () => clearTimeout(t);
+  }, [hiddenUntil]);
 
   useEffect(() => {
     void api.dictation.getState().then(setSt);
@@ -64,8 +74,7 @@ export function FlowBar() {
   const done = phase === 'completed';
   const expanded = active || busy || done || phase === 'error' || hover || menu;
   const ptt = settings.shortcuts.ptt[0];
-  const hiddenUntil = settings.flowBarHiddenUntil;
-  if (hiddenUntil > Date.now() && !active && !busy && !toasts.length) return null;
+  if (snoozed && !active && !busy && !toasts.length) return null;
 
   return (
     <div className={s.root} ref={rootRef}>

@@ -311,6 +311,38 @@ export interface AsrModelInfo {
   installed: boolean;
 }
 
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  command: string; // slash command, e.g. "action-items"
+  category: 'before' | 'after' | 'across' | 'more';
+  scope: 'one' | 'multiple' | 'both';
+  builtIn: boolean;
+  createdAt: string;
+  modifiedAt: string;
+}
+
+export interface MemoryDoc {
+  id: string;
+  folder: 'knowledge' | 'people' | 'preferences' | 'projects' | 'timeline' | 'other';
+  title: string;
+  content: string; // markdown
+  source: string; // what produced the latest change
+  changedBy: 'agent' | 'user' | 'setup';
+  modifiedAt: string;
+  versions: { content: string; modifiedAt: string; changedBy: string }[];
+}
+
+export interface MemoryStatus {
+  state: 'idle' | 'running' | 'failed';
+  lastRunAt: string | null;
+  docCount: number;
+  sources: { meetings: number; dictations: number; notes: number };
+  error: string | null;
+}
+
 export interface LlmStatus {
   provider: LlmProvider;
   available: boolean;

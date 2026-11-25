@@ -18,4 +18,5 @@ export default tseslint.config(
     },
   },
   { files: ['**/*.{js,mjs,cjs}'], languageOptions: { globals: { ...globals.node } } },
+  { files: ['src/renderer/src/capture/pcm-worklet.js'], languageOptions: { globals: { ...globals.audioWorklet } } },
 );

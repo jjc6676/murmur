@@ -36,7 +36,8 @@ if (!app.requestSingleInstanceLock()) {
     const s = ctx.settings.get();
     if (s.showFlowBar && s.onboardingComplete) ensureStatus();
     ctx.settings.onChange((n) => {
-      const visible = n.showFlowBar && n.onboardingComplete && n.flowBarHiddenUntil < Date.now();
+      // snooze ("Hide for 1 hour") is handled inside the bar so toasts can still show
+      const visible = n.showFlowBar && n.onboardingComplete;
       if (visible) ensureStatus();
       else getWindow('status')?.close();
     });

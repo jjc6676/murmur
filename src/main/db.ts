@@ -154,6 +154,31 @@ const MIGRATIONS: string[] = [
     value TEXT NOT NULL
   );
   `,
+  `
+  CREATE TABLE skills (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL,
+    command TEXT NOT NULL UNIQUE,
+    category TEXT NOT NULL DEFAULT 'more',
+    scope TEXT NOT NULL DEFAULT 'both',
+    builtIn INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL,
+    modifiedAt TEXT NOT NULL
+  );
+
+  CREATE TABLE memory_docs (
+    id TEXT PRIMARY KEY,
+    folder TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    changedBy TEXT NOT NULL DEFAULT 'agent',
+    versions TEXT NOT NULL DEFAULT '[]',
+    modifiedAt TEXT NOT NULL
+  );
+  `,
 ];
 
 export type Row = Record<string, SQLInputValue>;
