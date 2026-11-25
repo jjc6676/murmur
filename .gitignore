@@ -8,3 +8,10 @@ playwright-report/
 *.log
 *.tsbuildinfo
 .memdb/
+android/.toolchain/
+android/**/build/
+android/.gradle/
+android/local.properties
+android/app/.cxx/
+android/.kotlin/
+android/dist/
