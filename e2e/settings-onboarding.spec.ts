@@ -129,7 +129,7 @@ test('onboarding completes and settings persist across every section', async () 
     await hub.getByRole('button', { name: 'Connect', exact: true }).first().click();
     await expect(hub.getByText(/Connected \(UI preview/).first()).toBeVisible();
     await hub.getByRole('button', { name: 'Disconnect', exact: true }).first().click();
-    await expect(hub.getByRole('heading', { name: /Disconnect Google Calendar/ })).toBeVisible();
+    await expect(hub.getByRole('dialog', { name: /Disconnect Google Calendar/ })).toBeVisible();
     await hub.getByRole('dialog', { name: /Disconnect Google Calendar/ }).getByRole('button', { name: 'Cancel' }).click();
     await settingsDialog.getByRole('button', { name: 'Developer', exact: true }).click();
     await hub.getByRole('switch', { name: 'Debug outlines' }).click();

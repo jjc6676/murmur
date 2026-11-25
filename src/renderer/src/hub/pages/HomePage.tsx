@@ -43,6 +43,7 @@ export function HomePage() {
   const [uses, setUses] = useState<string[]>([]);
   const [welcomeDismissed, setWelcomeDismissed] = useState(false);
   const [welcomeHelp, setWelcomeHelp] = useState('');
+  const [mountedAt] = useState(() => Date.now());
   const refresh = useCallback(() => {
     void Promise.all([
       api.history.list({ query: query || undefined, limit: 60 }),
@@ -56,8 +57,12 @@ export function HomePage() {
   }, [query]);
   useEffect(refresh, [refresh]);
   useEvent('history:changed', refresh);
-  const bannerKey = 'try-another-app';
-  const bannerVisible = !settings.dismissedBanners.includes(bannerKey);
+  const dismissBanner = async (key: string) => {
+    if (!settings.dismissedBanners.includes(key)) await patch({ dismissedBanners: [...settings.dismissedBanners, key] });
+  };
+  const visibleBanners = HOME_BANNERS.filter((banner) => !settings.dismissedBanners.includes(banner.key));
+  const latestDictation = entries[0] ? new Date(entries[0].timestamp).getTime() : mountedAt;
+  const resurrected = settings.postOnboardingCompleted && entries.length > 0 && mountedAt - latestDictation > 30 * 86_400_000 && !welcomeDismissed;
   const completeOnboarding = async (selected: string[]) => {
     await patch({ profile: { typingLocations: selected }, postOnboardingCompleted: true });
   };

@@ -84,8 +84,16 @@ function PermissionsStep({ next }: { next: () => void }) {
     void patch({ onboardingPermissions: [...existing, { name, clicked, granted }] });
   };
   const requestMic = async () => {
-    setMicState('working'); record('microphone', true, false);
-    try { const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); stream.getTracks().forEach((t) => t.stop()); setMicState('allowed'); record('microphone', true, true); } catch { setMicState('failed'); }
+    setMicState('working');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      setMicState('allowed');
+      record('microphone', true, true);
+    } catch {
+      setMicState('failed');
+      record('microphone', true, false);
+    }
   };
   const allowAccessibility = () => { setAccessibility(true); record('accessibility', true, true); };
   const requestSystem = async () => {
@@ -99,7 +107,7 @@ function PermissionsStep({ next }: { next: () => void }) {
     {micState === 'failed' && <div className={styles.permissionError}>Permission verification failed or timed out. Close apps using the mic, then retry. Windows privacy may also be blocking access. <button onClick={() => void api.app.openExternal('ms-settings:privacy-microphone')}>Open microphone privacy settings</button></div>}
     <PermissionCard icon={<Keyboard/>} title="Accessibility" body="On Windows, Murmur uses UI Automation to paste into the focused app; no icon drag is needed." state={accessibility ? 'allowed' : 'idle'} action={allowAccessibility}/>
     <PermissionCard icon={<Keyboard/>} title="Notetaker accessibility" body="Recognize supported meeting windows and start when they begin." state={accessibility ? 'allowed' : 'idle'} action={allowAccessibility}/>
-    <PermissionCard icon={<Mic/>} title="Notetaker microphone" body="Capture your voice only while Notetaker is active." state={micState} action={requestMic}/>
+    <PermissionCard icon={<Mic/>} title="Notetaker microphone" body="Capture your voice only while Notetaker is active." successText="Ready for meeting capture." state={micState} action={requestMic}/>
     <PermissionCard icon={<MonitorUp/>} title="System audio" body="Capture other participants while Notetaker is active." state={systemAudio} action={requestSystem}/>
     <PermissionCard icon={<MonitorUp/>} title="Screen capture" body="Optionally capture visible context for questions; Windows will show its picker." state={systemAudio} action={requestSystem}/>
     {!ready && <div className={styles.permissionError}>Not all required permissions are granted. Allow microphone and accessibility before continuing.</div>}
@@ -107,8 +115,8 @@ function PermissionsStep({ next }: { next: () => void }) {
   </StepLayout>;
 }
 
-function PermissionCard({ icon, title, body, state, action }: { icon: ReactNode; title: string; body: string; state: 'idle' | 'working' | 'allowed' | 'failed'; action: () => void }) {
-  return <div className={styles.permissionCard}><span>{icon}</span><div><strong>{title}</strong><p>{state === 'allowed' ? `${title} is ready.` : body}</p></div>{state === 'allowed' ? <Check className={styles.success}/> : <Button variant="outline" loading={state === 'working'} onClick={action}>{state === 'failed' ? 'Try again' : 'Allow'}</Button>}</div>;
+function PermissionCard({ icon, title, body, successText, state, action }: { icon: ReactNode; title: string; body: string; successText?: string; state: 'idle' | 'working' | 'allowed' | 'failed'; action: () => void }) {
+  return <div className={styles.permissionCard}><span>{icon}</span><div><strong>{title}</strong><p>{state === 'allowed' ? successText ?? `${title} is ready.` : body}</p></div>{state === 'allowed' ? <Check className={styles.success}/> : <Button variant="outline" loading={state === 'working'} onClick={action}>{state === 'failed' ? 'Try again' : 'Allow'}</Button>}</div>;
 }
 
 function SetupStep({ substep, next }: { substep: number; next: () => void }) {

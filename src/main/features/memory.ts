@@ -205,6 +205,45 @@ export function registerMemory(): void {
       const row = db.get<MemoryRow>("SELECT * FROM memory_docs WHERE folder = 'knowledge' AND title = 'Saved facts'")!;
       return rowToDoc(row);
     },
+    events: () => db.all<{ id: string; source: string; title: string; detail: string; status: string; createdAt: string }>('SELECT * FROM memory_events ORDER BY createdAt DESC LIMIT 500'),
+    people() {
+      const meetings = db.all<{ id: string; createdAt: string; durationSec: number; transcript: string }>('SELECT id, createdAt, durationSec, transcript FROM meetings WHERE isDeleted = 0');
+      const index = new Map<string, { meetingIds: Set<string>; minutes: number; lastMet: string; mentions: number }>();
+      for (const meeting of meetings) {
+        for (const segment of parseTranscript(meeting.transcript)) {
+          const name = segment.speakerName?.trim();
+          if (!name || name.toLowerCase() === 'you') continue;
+          const person = index.get(name) ?? { meetingIds: new Set<string>(), minutes: 0, lastMet: meeting.createdAt, mentions: 0 };
+          person.meetingIds.add(meeting.id);
+          person.minutes += Math.max(0, segment.end - segment.start) / 60;
+          person.mentions += 1;
+          if (meeting.createdAt > person.lastMet) person.lastMet = meeting.createdAt;
+          index.set(name, person);
+        }
+      }
+      return [...index].map(([name, value]) => ({ name, meetingCount: value.meetingIds.size, minutes: Math.round(value.minutes), lastMet: value.lastMet, mentions: value.mentions })).sort((a, b) => b.minutes - a.minutes);
+    },
+    links() {
+      const rows = [
+        ...db.all<{ text: string; date: string; source: string }>("SELECT content AS text, modifiedAt AS date, 'Notes' AS source FROM notes WHERE isDeleted = 0"),
+        ...db.all<{ text: string; date: string; source: string }>("SELECT transcript AS text, createdAt AS date, 'Meetings' AS source FROM meetings WHERE isDeleted = 0"),
+        ...db.all<{ text: string; date: string; source: string }>("SELECT formattedText AS text, timestamp AS date, 'Dictations' AS source FROM history"),
+      ];
+      const links = new Map<string, { host: string; count: number; lastSeen: string; sources: Set<string> }>();
+      for (const row of rows) {
+        for (const raw of row.text.match(/https?:\/\/[^\s<>"')\]]+/g) ?? []) {
+          const url = raw.replace(/[.,;:!?]+$/, '');
+          let host: string;
+          try { host = new URL(url).hostname; } catch { continue; }
+          const item = links.get(url) ?? { host, count: 0, lastSeen: row.date, sources: new Set<string>() };
+          item.count += 1;
+          item.sources.add(row.source);
+          if (row.date > item.lastSeen) item.lastSeen = row.date;
+          links.set(url, item);
+        }
+      }
+      return [...links].map(([url, value]) => ({ url, host: value.host, count: value.count, lastSeen: value.lastSeen, sources: [...value.sources] })).sort((a, b) => b.count - a.count || b.lastSeen.localeCompare(a.lastSeen));
+    },
     deleteAll() {
       memoryGeneration += 1;
       memoryBuilding = false;

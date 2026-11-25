@@ -179,6 +179,28 @@ const MIGRATIONS: string[] = [
     modifiedAt TEXT NOT NULL
   );
   `,
+  `
+  ALTER TABLE todos ADD COLUMN priority TEXT NOT NULL DEFAULT 'none';
+  ALTER TABLE history ADD COLUMN feedback TEXT;
+  ALTER TABLE history ADD COLUMN accessibilityContext TEXT;
+  CREATE TABLE automations (
+    id TEXT PRIMARY KEY,
+    entityKind TEXT NOT NULL,
+    entityId TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    payload TEXT NOT NULL DEFAULT '{}',
+    createdAt TEXT NOT NULL
+  );
+  CREATE TABLE memory_events (
+    id TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    title TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+  );
+  `,
+  `
   ALTER TABLE history ADD COLUMN detectedLanguage TEXT;
   ALTER TABLE history ADD COLUMN outputLanguage TEXT;
   ALTER TABLE history ADD COLUMN localPipelineText TEXT;
@@ -195,6 +217,86 @@ const MIGRATIONS: string[] = [
   ALTER TABLE history ADD COLUMN selectedText TEXT;
   `,
   `
+  ALTER TABLE meetings ADD COLUMN isTourDemo INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE meetings ADD COLUMN processingPhase TEXT;
+  ALTER TABLE meetings ADD COLUMN deliveredSummary TEXT;
+  ALTER TABLE meetings ADD COLUMN summaryUpdatedAt TEXT;
+  ALTER TABLE meetings ADD COLUMN audioUpdatedAt TEXT;
+  ALTER TABLE meetings ADD COLUMN noticePosted INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE meetings ADD COLUMN autoShareEnabled INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE meeting_versions (
+    id TEXT PRIMARY KEY,
+    meetingId TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    source TEXT NOT NULL,
+    transformId TEXT,
+    prompt TEXT,
+    createdAt TEXT NOT NULL
+  );
+  CREATE INDEX meeting_versions_meeting ON meeting_versions(meetingId, createdAt);
+  CREATE TABLE transcript_corrections (
+    id TEXT PRIMARY KEY,
+    meetingId TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    artifactRevision TEXT NOT NULL,
+    artifactDigest TEXT NOT NULL,
+    entryId TEXT NOT NULL,
+    originalText TEXT NOT NULL,
+    editedText TEXT NOT NULL,
+    createdAt TEXT NOT NULL,
+    revertedAt TEXT
+  );
+  CREATE INDEX transcript_corrections_meeting ON transcript_corrections(meetingId, entryId);
+  CREATE TABLE meeting_feedback (
+    meetingId TEXT PRIMARY KEY REFERENCES meetings(id) ON DELETE CASCADE,
+    rating TEXT,
+    note TEXT NOT NULL DEFAULT '',
+    summaryGeneratedAt TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+  );
+  CREATE TABLE meeting_media (
+    id TEXT PRIMARY KEY,
+    meetingId TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+    data BLOB,
+    width INTEGER,
+    height INTEGER,
+    bytes INTEGER NOT NULL DEFAULT 0,
+    contentType TEXT NOT NULL,
+    remoteKey TEXT,
+    registeredAt TEXT,
+    uploadedAt TEXT,
+    deletedAt TEXT,
+    createdAt TEXT NOT NULL
+  );
+  CREATE TABLE import_tombstones (
+    source TEXT NOT NULL,
+    externalId TEXT NOT NULL,
+    deletedAt TEXT NOT NULL,
+    PRIMARY KEY (source, externalId)
+  );
+  `,
+  `
+  ALTER TABLE note_versions ADD COLUMN transformId TEXT;
+  ALTER TABLE note_versions ADD COLUMN prompt TEXT;
+  ALTER TABLE note_images ADD COLUMN width INTEGER;
+  ALTER TABLE note_images ADD COLUMN height INTEGER;
+  ALTER TABLE note_images ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE note_images ADD COLUMN cloudObjectKey TEXT;
+  ALTER TABLE note_images ADD COLUMN uploaded INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE user_context (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    writingSamples TEXT NOT NULL DEFAULT '[]',
+    polishPrompts TEXT NOT NULL DEFAULT '[]',
+    modifiedAt TEXT NOT NULL
+  );
+  CREATE TABLE user_voice_preferences (
+    id TEXT PRIMARY KEY,
+    preference TEXT NOT NULL,
+    filter TEXT,
+    uploaded INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL
+  );
+  `,
   `
   ALTER TABLE history ADD COLUMN pasteOutcome TEXT;
   ALTER TABLE history ADD COLUMN pasteDelayed INTEGER NOT NULL DEFAULT 0;

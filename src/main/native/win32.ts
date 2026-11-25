@@ -14,6 +14,11 @@ const CloseHandle = kernel32.func('bool __stdcall CloseHandle(void* hObject)');
 const QueryFullProcessImageNameW = kernel32.func(
   'bool __stdcall QueryFullProcessImageNameW(void* hProcess, uint32_t dwFlags, _Out_ uint16_t* lpExeName, _Inout_ uint32_t* lpdwSize)',
 );
+const OpenProcessToken = advapi32.func('bool __stdcall OpenProcessToken(void* ProcessHandle, uint32_t DesiredAccess, _Out_ void** TokenHandle)');
+const TOKEN_ELEVATION = koffi.struct('TOKEN_ELEVATION', { TokenIsElevated: 'uint32_t' });
+const GetTokenInformation = advapi32.func(
+  'bool __stdcall GetTokenInformation(void* TokenHandle, uint32_t TokenInformationClass, _Out_ TOKEN_ELEVATION* TokenInformation, uint32_t TokenInformationLength, _Out_ uint32_t* ReturnLength)',
+);
 
 const KEYBDINPUT = koffi.struct('KEYBDINPUT', {
   wVk: 'uint16_t',

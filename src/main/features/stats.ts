@@ -203,6 +203,68 @@ function emitMilestones(): void {
   db.kvSet('statsMilestones', [...emitted]);
 }
 
+async function meetingAnalytics(): Promise<MeetingAnalytics> {
+  const cutoff = new Date(Date.now() - 35 * 86_400_000).toISOString();
+  const meetings = getCtx().db.all<{ id: string; title: string; createdAt: string; durationSec: number; transcript: string }>(
+    'SELECT id, title, createdAt, durationSec, transcript FROM meetings WHERE isDeleted = 0 AND createdAt >= ? ORDER BY createdAt ASC',
+    cutoff,
+  );
+  const weekMaps = Array.from({ length: 5 }, () => new Map<string, number>());
+  const people = new Map<string, { minutes: number; meetingIds: Set<string> }>();
+  const now = new Date();
+  const currentWeekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+  const topics = ['Planning', 'Product', 'Engineering', 'Sales', 'Customers', 'Hiring', 'Operations', 'Creative', 'General'];
+  for (const meeting of meetings) {
+    const ageWeeks = Math.floor((currentWeekStart.getTime() - new Date(meeting.createdAt).getTime()) / (7 * 86_400_000));
+    const weekIndex = 4 - Math.max(0, Math.min(4, ageWeeks));
+    const cacheKey = `meetingTopic:${meeting.id}`;
+    let topic = getCtx().db.kvGet<string>(cacheKey, '');
+    if (!topic) {
+      const output = await getCtx().llm({
+        system: `Tag this meeting with exactly one topic from: ${topics.join(', ')}. Output only the topic.`,
+        input: meeting.title,
+      });
+      topic = topics.find((candidate) => output.toLowerCase().includes(candidate.toLowerCase())) ?? 'General';
+      getCtx().db.kvSet(cacheKey, topic);
+    }
+    const minutes = Math.max(1, Math.round(meeting.durationSec / 60));
+    weekMaps[weekIndex].set(topic, (weekMaps[weekIndex].get(topic) ?? 0) + minutes);
+    let segments: TranscriptSegment[];
+    try {
+      segments = JSON.parse(meeting.transcript) as TranscriptSegment[];
+    } catch {
+      segments = [];
+    }
+    const names = new Map<string, number>();
+    for (const segment of segments) {
+      if (!segment.speakerName || segment.speakerName.toLowerCase() === 'you') continue;
+      names.set(segment.speakerName, (names.get(segment.speakerName) ?? 0) + Math.max(0, segment.end - segment.start) / 60);
+    }
+    for (const [name, sharedMinutes] of names) {
+      const person = people.get(name) ?? { minutes: 0, meetingIds: new Set<string>() };
+      person.minutes += sharedMinutes || minutes;
+      person.meetingIds.add(meeting.id);
+      people.set(name, person);
+    }
+  }
+  const weeks = weekMaps.map((map, index) => {
+    const date = new Date(currentWeekStart);
+    date.setDate(date.getDate() - (4 - index) * 7);
+    return {
+      label: date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      topics: [...map].map(([topic, minutes]) => ({ topic, minutes })).sort((a, b) => b.minutes - a.minutes),
+    };
+  });
+  return {
+    weeks,
+    recordedCount: meetings.length,
+    averageDurationMin: meetings.length ? Math.round(meetings.reduce((total, meeting) => total + meeting.durationSec, 0) / meetings.length / 60) : 0,
+    people: [...people].map(([name, value]) => ({ name, minutes: Math.round(value.minutes), meetings: value.meetingIds.size })).sort((a, b) => b.minutes - a.minutes).slice(0, 5),
+    analyzedCount: meetings.length,
+    requiredCount: 3,
+  };
+}
+
 export function registerStats(): void {
   handle('stats', {
     get: computeStats,
