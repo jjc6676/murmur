@@ -11,6 +11,15 @@ interface Props {
   onNotesChange(notes: string): void;
   onArtifactCreated(): void;
 }
+const SUGGESTED_PROMPTS = [
+  { label: 'What did I miss?', prompt: 'What did I miss?' },
+  { label: 'Write a follow-up email', prompt: 'Write a concise follow-up email summarizing the meeting, decisions, owners, and next steps.' },
+  { label: 'Identify blind spots', prompt: 'Identify blind spots, unstated assumptions, risks, and unresolved issues in this meeting.' },
+  { label: 'Make notes longer', prompt: 'Expand the meeting notes with useful context and detail from the transcript without inventing facts.' },
+  { label: 'Make me sound smart', prompt: 'Rewrite the key takeaways as clear, polished, insightful notes while preserving the meeting facts.' },
+  { label: 'Suggest questions', prompt: 'Suggest thoughtful follow-up questions based on unresolved topics and decisions in this meeting.' },
+] as const;
+
 
 export function MeetingChatRail({ meetingId, notes, onNotesChange, onArtifactCreated }: Props) {
   const [sessions, setSessions] = useState<MeetingChatSession[]>([]);
@@ -109,7 +118,7 @@ export function MeetingChatRail({ meetingId, notes, onNotesChange, onArtifactCre
         <IconButton size="sm" label="Delete chat" onClick={() => void deleteChat()}><Trash2 size={13} /></IconButton>
       </div>
       <div className="chat-log" aria-live="polite" aria-busy={asking}>
-        {!messages.length && <div className="chat-suggestions">{['What did I miss?', 'Write a follow-up email', 'Identify blind spots', 'List decisions', 'Create an agenda'].map((prompt) => <Button key={prompt} size="sm" variant="outline" onClick={() => void runQuestion(prompt)}>{prompt}</Button>)}</div>}
+        {!messages.length && <div className="chat-suggestions">{SUGGESTED_PROMPTS.map(({ label, prompt }) => <Button key={label} size="sm" variant="outline" onClick={() => void runQuestion(prompt)}>{label}</Button>)}</div>}
         {messages.map((message) => <div className="chat-bubble" data-role={message.role} key={message.id}><div>{message.content}</div>{message.role === 'assistant' && message.status !== 'stopped' && <div className="chat-message-actions"><Button size="sm" variant="ghost" icon={<Copy size={13} />} onClick={() => void api.app.copyText(message.content).then(() => toast('Response copied', { tone: 'success' }))}>Copy</Button><Button size="sm" variant="ghost" onClick={() => { const next = `${notes}${notes ? '\n\n' : ''}${message.content}`; onNotesChange(next); void api.meetings.updateNotes(meetingId, next).then(() => toast('Updated meeting notes.')); }}>Add to notes</Button><Button size="sm" variant="ghost" icon={<FilePlus2 size={13} />} loading={artifactMessageId === message.id} onClick={() => void addArtifact(message)}>{artifactMessageId === message.id ? 'Generating…' : 'Create section'}</Button><Button size="sm" variant="ghost" onClick={() => void api.meetings.saveChatFact(meetingId, message.id).then(() => toast('Saved to Memory', { tone: 'success' }))}>Save fact</Button></div>}</div>)}
         {incompleteQuestion && <div className="chat-bubble incomplete"><strong>This response did not complete</strong><Button size="sm" variant="ghost" onClick={() => void runQuestion(incompleteQuestion)}>Retry</Button></div>}
       </div>

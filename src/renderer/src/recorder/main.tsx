@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import { AudioLines, Columns2, Copy, Expand, Maximize2, Minus, Pause, Play, RotateCw, Square, X } from 'lucide-react';
 import type { Meeting, MeetingListItem, RecorderState, TranscriptSegment } from '@shared/types';
+import { comboLabelParts } from '@shared/hotkeys';
 import '../styles/base.css';
 import '../hub/notetaker/notetaker.css';
 import { api, useEvent } from '../lib/api';
@@ -51,6 +52,8 @@ function RecorderApp() {
   const [shortCaptureOpen, setShortCaptureOpen] = useState(true);
   const [autoHidePrompt, setAutoHidePrompt] = useState<'offer' | 'accepted' | null>(null);
   const [summarySuppressionPrompt, setSummarySuppressionPrompt] = useState<'offer' | 'accepted' | null>(null);
+  const [quitTourOpen, setQuitTourOpen] = useState(false);
+  const [ignoredSilenceLevel, setIgnoredSilenceLevel] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const loadMeeting = async (meetingId: string | null) => {
@@ -101,6 +104,9 @@ function RecorderApp() {
   const active = ['awaiting_audio', 'recording', 'paused', 'finalizing'].includes(state.phase);
   const segments: TranscriptSegment[] = meeting?.transcript.length ? meeting.transcript : state.liveSegments;
   const capturedWordCount = segments.reduce((total, segment) => total + segment.text.trim().split(/\s+/).filter(Boolean).length, 0);
+  const shortcut = comboLabelParts(settings.shortcuts.startNotetaker[0] ?? '').join(' + ');
+  const startTooltip = shortcut ? `Start Notetaker (${shortcut})` : 'Start Notetaker';
+  const silenceLevel = state.micSilentSec >= 300 ? 300 : state.micSilentSec >= 180 ? 180 : 0;
   const closeNotepad = async () => {
     if (active && settings.notetaker.notepadView !== 'hidden' && !settings.notetaker.autoHidePromptShown) {
       const closeCount = settings.notetaker.earlyNotepadCloseCount + 1;
@@ -125,7 +131,7 @@ function RecorderApp() {
         <header className="recorder-header"><strong className="nt-grow">Notepad</strong><IconButton label="Close" size="sm" onClick={() => void api.app.closeWindow()}><X size={15} /></IconButton></header>
         <div className="idle-recorder">
           <div><h1>Ready for your next meeting?</h1><p className="nt-subtle">Murmur transcribes locally and turns conversations into clear notes.</p></div>
-          <Button onClick={() => void api.recorder.start()}>Start Notetaker</Button>
+          <Button title={startTooltip} onClick={() => void api.recorder.start()}>Start Notetaker</Button>
           <section><h2>Recent notes</h2>{recent.map((item) => <button type="button" className="recent-note" key={item.id} onClick={() => void loadMeeting(item.id)}><strong>{item.title}</strong><div className="nt-subtle">{new Date(item.createdAt).toLocaleString()}</div></button>)}</section>
         </div>
       </div>
@@ -137,10 +143,12 @@ function RecorderApp() {
       <header className="recorder-header">
         <input className="recorder-title" aria-label="Meeting title" value={title} onChange={(event) => setTitle(event.target.value)} onBlur={() => { if (meeting && title.trim()) void api.meetings.rename(meeting.id, title).then(setMeeting); }} />
         <span className="recorder-timer">{formatTime(state.elapsedSec || meeting?.durationSec || 0)}</span>
-        <div className="levels" aria-label={`Microphone ${Math.round(state.micLevel * 100)}%, system ${Math.round(state.systemLevel * 100)}%`}>
-          <span className="level"><span style={{ height: `${Math.min(100, state.micLevel * 100)}%` }} /></span>
-          <span className="level"><span style={{ height: `${Math.min(100, state.systemLevel * 100)}%` }} /></span>
-        </div>
+        {state.systemAudioAvailable ? (
+          <div className="levels" aria-label={`Microphone ${Math.round(state.micLevel * 100)}%, system ${Math.round(state.systemLevel * 100)}%`}>
+            <span className="level"><span style={{ height: `${Math.min(100, state.micLevel * 100)}%` }} /></span>
+            <span className="level"><span style={{ height: `${Math.min(100, state.systemLevel * 100)}%` }} /></span>
+          </div>
+        ) : <span className="nt-subtle" role="status">Audio levels unavailable</span>}
         <div className="recorder-actions">
           <IconButton label="Audio input and output" size="sm" onClick={() => setAudioOpen(true)}><AudioLines size={15} /></IconButton>
           {state.phase === 'recording' && <IconButton label="Pause" size="sm" onClick={() => void api.recorder.pause()}><Pause size={15} /></IconButton>}
@@ -153,10 +161,11 @@ function RecorderApp() {
           <IconButton label="Close" size="sm" onClick={() => void closeNotepad()}><X size={15} /></IconButton>
         </div>
       </header>
+      {active && meeting?.isTourDemo && <div className="recorder-banner" role="status"><span><strong>Guided tour recording</strong> Try the controls while Murmur creates a local demo note.</span><div className="nt-inline-actions"><Button size="sm" variant="ghost" onClick={() => void api.recorder.stop()}>Skip</Button><Button size="sm" variant="outline" onClick={() => setQuitTourOpen(true)}>Quit</Button></div></div>}
       {state.phase === 'awaiting_audio' && <div className="recorder-banner" role="status"><strong>Waiting for audio…</strong><span>Notetaker will start the timer when your first audio arrives.</span></div>}
       {active && settings.notetaker.meetingCount === 0 && !settings.notetaker.hideInScreenCapture && <div className="recorder-banner" role="status"><span><strong>Sharing your screen?</strong> The Flow Bar and Notepad can appear in screen shares and screenshots.</span><Button size="sm" variant="outline" onClick={() => void patchSettings({ notetaker: { hideInScreenCapture: true } })}>Hide in screen shares</Button></div>}
       {!state.systemAudioAvailable && active && <div className="recorder-banner warning" role="alert"><span><strong>Only your microphone is recording.</strong> Remote participants may be missing.</span><Button size="sm" variant="outline" onClick={() => void api.recorder.retrySystemAudio()}>Turn on system audio</Button></div>}
-      {state.micSilentSec >= 180 && active && <div className="recorder-banner warning" role="alert"><strong>Microphone unavailable</strong><span>Stop and resume the meeting to reconnect your microphone.</span></div>}
+      {silenceLevel > ignoredSilenceLevel && active && <div className="recorder-banner warning" role="alert"><span><strong>{silenceLevel >= 300 ? "Still there? Notetaker isn't hearing anything" : 'Murmur isn’t hearing your microphone'}</strong> Check that the correct microphone is selected.</span><div className="nt-inline-actions"><Button size="sm" variant="ghost" onClick={() => setIgnoredSilenceLevel(silenceLevel)}>Ignore</Button><Button size="sm" variant="outline" onClick={() => void api.app.openSettings('general')}>Microphone settings</Button></div></div>}
       {state.storageLow && <div className="recorder-banner warning" role="alert"><strong>Storage almost full</strong><span>Free up space on your computer to keep recording.</span></div>}
       {settings.notetaker.translationLanguage && <div className="recorder-banner"><span>Translating to {settings.notetaker.translationLanguage}. Your original transcript is preserved.</span><Button size="sm" variant="ghost" onClick={() => void patchSettings({ notetaker: { translationLanguage: null } })}>Turn off</Button></div>}
       {settings.notetaker.consentChatNotice && <div className="consent">Always get consent when transcribing others. <Button size="sm" variant="ghost" icon={<Copy size={13} />} onClick={() => { setCopyStatus(null); void api.app.copyText(settings.notetaker.consentMessage).then(() => setCopyStatus('Consent message copied')).catch(() => setCopyStatus('Couldn’t copy consent message')); }}>Copy consent message</Button>{copyStatus && <span role="status">{copyStatus}</span>}</div>}
@@ -178,6 +187,13 @@ function RecorderApp() {
           <span className="nt-subtle">Output capture follows the device selected in Windows.</span>
         </div>
       </Dialog>
+      <Dialog
+        open={quitTourOpen}
+        onClose={() => setQuitTourOpen(false)}
+        title="Quit the guided tour?"
+        description="This short tutorial shows how Notetaker captures conversations and turns them into useful notes. Keeping the tour going gives you the best first look."
+        footer={<><Button variant="ghost" onClick={() => setQuitTourOpen(false)}>Keep going</Button><Button variant="danger" onClick={() => { setQuitTourOpen(false); if (meeting) void api.recorder.stop().then(() => api.meetings.remove(meeting.id)).then(() => api.app.closeWindow()); }}>Quit tour</Button></>}
+      />
       <Dialog open={shortCaptureOpen && state.phase === 'done' && Boolean(meeting) && !meeting?.isTourDemo && capturedWordCount > 0 && capturedWordCount <= 10} onClose={() => setShortCaptureOpen(false)} title="Started by mistake?" description="This meeting only captured a few words. Keep it in your notes or discard it now." footer={<><Button variant="ghost" onClick={() => setShortCaptureOpen(false)}>Keep</Button><Button variant="danger" onClick={() => { if (meeting) void api.meetings.remove(meeting.id).then(() => api.app.closeWindow()); }}>Discard</Button></>} />
       <Dialog open={autoHidePrompt !== null} onClose={() => setAutoHidePrompt(null)} title={autoHidePrompt === 'accepted' ? 'Notepad hidden by default' : 'Hide Notepad when meetings start?'} description={autoHidePrompt === 'accepted' ? 'You can still open the live meeting note whenever you need it.' : 'You’ve closed Notepad soon after starting several meetings. Murmur can keep it hidden by default.'} footer={autoHidePrompt === 'accepted' ? <><Button variant="ghost" onClick={() => { void patchSettings({ notetaker: { notepadView: 'open', autoHidePromptShown: false } }); setAutoHidePrompt(null); }}>Undo</Button><Button onClick={() => setAutoHidePrompt(null)}>Done</Button></> : <><Button variant="ghost" onClick={() => { void patchSettings({ notetaker: { autoHidePromptShown: true } }); setAutoHidePrompt(null); void api.app.closeWindow(); }}>Keep showing</Button><Button onClick={() => { void patchSettings({ notetaker: { notepadView: 'hidden', autoHidePromptShown: true } }); setAutoHidePrompt('accepted'); }}>Hide by default</Button></>} />
       <Dialog open={summarySuppressionPrompt !== null} onClose={() => setSummarySuppressionPrompt(null)} title={summarySuppressionPrompt === 'accepted' ? 'Summary auto-open turned off' : "Don't open summary after meetings?"} description={summarySuppressionPrompt === 'accepted' ? 'Your summaries remain available in Notetaker.' : 'You’ve closed several auto-opened summaries. Murmur can leave them in Notetaker without opening this window.'} footer={summarySuppressionPrompt === 'accepted' ? <><Button variant="ghost" onClick={() => { void patchSettings({ notetaker: { openSummaryWhenReady: true, autoOpenSummaryCloseCount: 0 } }); setSummarySuppressionPrompt(null); }}>Undo</Button><Button onClick={() => setSummarySuppressionPrompt(null)}>Done</Button></> : <><Button variant="ghost" onClick={() => setSummarySuppressionPrompt(null)}>Keep opening</Button><Button onClick={() => { void patchSettings({ notetaker: { openSummaryWhenReady: false } }); setSummarySuppressionPrompt('accepted'); }}>Don’t open summaries</Button></>} />

@@ -1,5 +1,5 @@
 import { appendFileSync, existsSync, readFileSync, rmSync, statfsSync, writeFileSync } from 'node:fs';
-import { clipboard, powerMonitor, shell } from 'electron';
+import { app, clipboard, powerMonitor, shell } from 'electron';
 import type { CalendarEvent, RecorderState, TranscriptSegment } from '@shared/types';
 import { getCtx } from '../context';
 import { newId, nowIso } from '../db';
@@ -107,6 +107,22 @@ function addNotificationOnce(key: string, title: string, text: string): void {
   getCtx().db.kvSet(`notification.${key}`, true);
   addNotification({ type: 'announcement', key, title, text });
 }
+function showMicSilence(title: string, body: string): void {
+  showToast(
+    {
+      key: title.startsWith('Still there') ? 'MicStillSilent' : 'MicSilent',
+      title,
+      body,
+      tone: 'warning',
+      target: 'hub',
+      actions: [{ id: 'ignore', label: 'Ignore' }, { id: 'settings', label: 'Microphone settings' }],
+    },
+    (action) => {
+      if (action === 'settings') broadcast('settings:open', { section: 'general' });
+    },
+  );
+}
+
 
 
 
@@ -226,8 +242,8 @@ export async function startRecording(opts: { title?: string; calendarEventId?: s
       const elapsedSec = Math.floor((Date.now() - current.startedAt) / 1000);
       const micSilentSec = Math.floor((Date.now() - current.lastMicAudioAt) / 1000);
       setState({ elapsedSec, micSilentSec });
-      if (micSilentSec === 180) showToast({ key: 'MicSilent', title: 'Murmur isn’t hearing your microphone', body: `Check ${settings.micDeviceId === 'default' ? 'your selected microphone' : settings.micDeviceId}.`, tone: 'warning', target: 'hub' });
-      if (micSilentSec === 300) showToast({ key: 'MicStillSilent', title: "Still there? Notetaker isn't hearing anything", body: 'Stop and resume the meeting to reconnect your microphone.', tone: 'warning', target: 'hub' });
+      if (micSilentSec === 180) showMicSilence('Murmur isn’t hearing your microphone', `Check ${settings.micDeviceId === 'default' ? 'your selected microphone' : settings.micDeviceId}.`);
+      if (micSilentSec === 300) showMicSilence("Still there? Notetaker isn't hearing anything", 'Check that the correct microphone is selected.');
       if (Math.floor((Date.now() - current.lastAudioAt) / 1000) === 600) {
         showToast({ key: 'MeetingSilenceStop', title: 'Recording stopped after silence', body: 'Open the saved meeting or resume if the call is still going.', tone: 'warning', target: 'hub', actions: [{ id: 'resume', label: 'Resume' }] }, (action) => {
           if (action === 'resume') void startRecording({ title: getMeeting(current.meetingId)?.title });
@@ -273,8 +289,30 @@ export async function startRecording(opts: { title?: string; calendarEventId?: s
   void ensureCapture().webContents.executeJavaScript(`window.murmurStartMeeting(${JSON.stringify(resolveMicDeviceId())})`, true);
   setTimeout(() => {
     if (session === current && !state.hasCapturedAudio) {
-      showToast({ key: 'NoMeetingAudio', title: "Notetaker isn't getting any audio", body: 'Check your microphone and system-audio permissions, then try again.', tone: 'warning', target: 'hub', actions: [{ id: 'dismiss', label: 'Dismiss' }, { id: 'retry', label: 'Try again' }] }, (action) => {
-        if (action === 'retry') void ensureCapture().webContents.executeJavaScript(`window.murmurStartMeeting(${JSON.stringify(resolveMicDeviceId())})`, true);
+      showToast({ key: 'NoMeetingAudio', title: "Notetaker isn't getting any audio", body: 'Restart Murmur, then record this meeting again.', tone: 'warning', target: 'hub', actions: [{ id: 'dismiss', label: 'Dismiss' }, { id: 'restart', label: 'Restart Murmur' }] }, (action) => {
+        if (action !== 'restart') return;
+        showToast(
+          {
+            key: 'ConfirmNoMeetingAudioRestart',
+            title: 'Restart Murmur?',
+            body: 'No audio has been captured, so there is no unsaved recording. Murmur will restart now.',
+            tone: 'warning',
+            target: 'hub',
+            actions: [{ id: 'cancel', label: 'Cancel' }, { id: 'restart', label: 'Restart Murmur' }],
+          },
+          (confirmation) => {
+            if (confirmation !== 'restart') return;
+            if (session !== current || state.hasCapturedAudio) {
+              showToast({ key: 'NoMeetingAudioRestartCancelled', title: 'Recording changed', body: 'Murmur did not restart because audio has now been captured.', tone: 'info', target: 'hub' });
+              return;
+            }
+            void stopRecording().then(() => {
+              getCtx().db.kvSet('notetaker.recordAgainAfterRestart', true);
+              app.relaunch();
+              app.exit(0);
+            });
+          },
+        );
       });
     }
   }, 20_000);
@@ -681,6 +719,16 @@ export function registerRecorder(): void {
     },
   });
   recoverIncompleteRecordings();
+  if (getCtx().db.kvGet('notetaker.recordAgainAfterRestart', false)) {
+    getCtx().db.kvSet('notetaker.recordAgainAfterRestart', false);
+    setTimeout(() => showToast({
+      key: 'RecordAgainAfterRestart',
+      title: 'Please record again',
+      body: 'Murmur restarted after the audio problem. Start Notetaker again for this meeting.',
+      tone: 'info',
+      target: 'hub',
+    }), 1000);
+  }
   powerMonitor.on('suspend', () => {
     if (session) sleepStartedAt = Date.now();
   });

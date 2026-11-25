@@ -91,9 +91,10 @@ test('guards active recording lifecycle and preserves transcript corrections', a
   const active = await invoke<{ meetingId: string }>(hub, 'recorder:start', { title: 'Active sync' });
   await expect(hub.getByRole('button', { name: 'Open live meeting note' })).toBeVisible();
   await hub.getByRole('button', { name: 'Start', exact: true }).click();
-  await expect(hub.getByRole('dialog', { name: 'Stop Notetaker?' })).toBeVisible();
-  await expect(hub.getByRole('button', { name: 'Stop and switch' })).toBeVisible();
-  await hub.getByRole('button', { name: 'Cancel' }).click();
+  await expect(hub.getByRole('dialog', { name: 'Switch recording?' })).toBeVisible();
+  await expect(hub.getByRole('button', { name: 'Start', exact: true }).last()).toBeVisible();
+  await expect(hub.getByRole('button', { name: 'Switch', exact: true })).toBeVisible();
+  await hub.getByRole('button', { name: 'No', exact: true }).click();
 
   await hub.getByRole('button', { name: 'Stop Notetaker' }).click();
   await expect(hub.getByRole('dialog', { name: 'Stop Notetaker?' })).toBeVisible();

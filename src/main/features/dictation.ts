@@ -387,9 +387,6 @@ async function processSession(s: Session): Promise<void> {
     setState({ phase: 'resting', mode: null, startedAt: null });
     return;
   }
-  if (err === 'MicDisconnected') {
-    showToast({ key: 'TranscriptIncomplete', title: 'Part of your dictation is missing', body: 'The microphone disconnected. Murmur will insert what was captured before the disconnect.', target: 'bar', tone: 'warning' });
-  }
   if (speechSeconds(pcm) < 0.15) {
     saveHistory(s, { status: 'empty', asrText: '', formattedText: '', pcm, language: 'en', latencyMs: 0, extra: activeContext });
     const count = getCtx().db.kvGet<number>('noAudioCount', 0) + 1;
@@ -446,7 +443,7 @@ async function processSession(s: Session): Promise<void> {
     } else if (settings.internal.isAutoInstructEnabled && await shouldAutoInstruct(asrText)) {
       await deliverCommand({ ...s, mode: 'instruct' }, asrText, outputLanguage, pcm, t0);
     } else {
-      await deliver(s, asrText, outputLanguage, pcm, t0, detectedLanguage);
+      await deliver(s, asrText, outputLanguage, pcm, t0, detectedLanguage, err === 'MicDisconnected');
     }
   } finally {
     clearTimeout(delayTimer);
@@ -586,7 +583,7 @@ function splitMessages(text: string): string[] {
   return out;
 }
 
-async function deliver(s: Session, asrText: string, language: string, pcm: Buffer, t0: number, detectedLanguage = language): Promise<HistoryEntry> {
+async function deliver(s: Session, asrText: string, language: string, pcm: Buffer, t0: number, detectedLanguage = language, deferPaste = false): Promise<HistoryEntry> {
   const { settings } = getCtx();
   const st = settings.get();
   const app = { processName: s.target.processName, title: s.target.title };
@@ -621,7 +618,7 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
     language,
     latencyMs: Date.now() - t0,
     extra: {
-      pastedText: voidTarget ? null : finalText,
+      pastedText: voidTarget || deferPaste ? null : finalText,
       cleanupLevel: formatted.cleanupLevel,
       styleContext: formatted.styleContext,
       numDictionaryReplacements: formatted.numDictionaryReplacements,
@@ -639,7 +636,39 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
     },
   });
   setState({ lastEntryId: entry.id });
-  if (voidTarget) {
+  if (deferPaste) {
+    showToast(
+      {
+        key: 'MicDisconnected',
+        title: 'Part of your dictation is missing',
+        body: 'Your microphone disconnected. Insert the text captured up to the disconnect?',
+        target: 'bar',
+        tone: 'warning',
+        actions: [{ id: 'insert', label: 'Insert' }],
+        durationMs: 15000,
+      },
+      (action) => {
+        if (action !== 'insert') return;
+        void (async () => {
+          await waitForModifiersReleased((key) => getCtx().hotkeys.isHeld(key));
+          const pasteOutcome = await pasteText(finalText, { target: s.target, html: htmlText ?? undefined, pressEnter: formatted.pressEnter });
+          getCtx().db.run(
+            'UPDATE history SET pastedText = ?, pasteOutcome = ?, pasteDelayed = ? WHERE id = ?',
+            pasteOutcome.outcome === 'verified' ? finalText : null,
+            pasteOutcome.outcome,
+            pasteOutcome.delayed ? 1 : 0,
+            entry.id,
+          );
+          if (pasteOutcome.outcome === 'verified') {
+            playSound('paste');
+            lastPaste = { id: entry.id, at: Date.now() };
+          } else {
+            showToast({ key: 'MicDisconnectedInsertFailed', title: 'Click a textbox to insert', body: 'The captured text is saved in History.', target: 'bar', tone: 'warning' });
+          }
+        })();
+      },
+    );
+  } else if (voidTarget) {
     showToast({ key: 'VoidDictation', title: 'Select a textbox first, then dictate', body: finalText.slice(0, 120), target: 'bar', actions: [{ id: 'copy', label: 'Copy' }], durationMs: 10000 }, (a) => {
       if (a === 'copy') {
         clipboard.writeText(finalText);

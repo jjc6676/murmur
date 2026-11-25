@@ -49,5 +49,10 @@ test('summary translations are versioned against the original summary', async ()
   expect(translated.language).toBe('Spanish');
   const versions = await invoke<{ language: string; sourceGeneratedAt: string }[]>(hub, 'meetings:summaryTranslations', meeting.id);
   expect(versions).toContainEqual(expect.objectContaining({ language: 'Spanish', sourceGeneratedAt: translated.sourceGeneratedAt }));
+  await hub.getByRole('link', { name: 'Notetaker', exact: true }).click();
+  await hub.getByRole('link', { name: /translated summary/i }).click();
+  for (const prompt of ['What did I miss?', 'Write a follow-up email', 'Identify blind spots', 'Make notes longer', 'Make me sound smart', 'Suggest questions']) {
+    await expect(hub.getByRole('button', { name: prompt, exact: true })).toBeVisible();
+  }
   await app.close();
 });

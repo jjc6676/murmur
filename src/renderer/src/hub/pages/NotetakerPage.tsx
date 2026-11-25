@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CalendarDays, FileAudio, Folder, Import, MoreHorizontal, Search, Settings, Video } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { CalendarEvent, Folder as FolderType, MeetingListItem, RecorderState } from '@shared/types';
+import { comboLabelParts } from '@shared/hotkeys';
 import { api, errorMessage, useEvent } from '../../lib/api';
 import { Button, ConfirmDialog, Dialog, EmptyState, IconButton, Input, Menu, Page, PageHeader, Select, Tabs, TextArea } from '../../ui';
 import { usePatchSettings, useSettings } from '../../lib/settings';
@@ -9,6 +10,7 @@ import { toast, useHubUi } from '../state';
 import '../notetaker/notetaker.css';
 
 type View = 'today' | 'past' | 'shared' | 'folders';
+type StartOptions = { title?: string; calendarEventId?: string; isTourDemo?: boolean };
 
 export function NotetakerPage() {
   const openSettings = useHubUi((state) => state.openSettings);
@@ -30,7 +32,8 @@ export function NotetakerPage() {
   const [recorder, setRecorder] = useState<RecorderState | null>(null);
   const [folderEditor, setFolderEditor] = useState<{ id: string | null; name: string; description: string } | null>(null);
   const [deletingFolder, setDeletingFolder] = useState<FolderType | null>(null);
-  const [switchPrompt, setSwitchPrompt] = useState(false);
+  const [pendingStart, setPendingStart] = useState<StartOptions | null>(null);
+  const [switching, setSwitching] = useState(false);
   const [stopPrompt, setStopPrompt] = useState(false);
   const [brief, setBrief] = useState<{ title: string; content: string; event: CalendarEvent } | null>(null);
   const [cloudImport, setCloudImport] = useState<string | null>(null);
@@ -90,9 +93,9 @@ export function NotetakerPage() {
       setGranolaProgress(null);
     }
   };
-  const startNotetaker = async (opts: { title?: string; calendarEventId?: string; isTourDemo?: boolean } = {}) => {
+  const startNotetaker = async (opts: StartOptions = {}) => {
     if (recorder && ['awaiting_audio', 'recording', 'paused', 'finalizing'].includes(recorder.phase)) {
-      setSwitchPrompt(true);
+      setPendingStart(opts);
       return;
     }
     try {
@@ -100,6 +103,18 @@ export function NotetakerPage() {
       if (next.meetingId) await api.recorder.openNotepad(next.meetingId);
     } catch (error) {
       toast('Notetaker could not start', { body: errorMessage(error), tone: 'error' });
+    }
+  };
+  const switchRecording = async (opts: StartOptions) => {
+    setSwitching(true);
+    try {
+      const next = await api.recorder.start({ ...opts, replaceActive: true });
+      setPendingStart(null);
+      if (next.meetingId) await api.recorder.openNotepad(next.meetingId);
+    } catch (error) {
+      toast('Notetaker could not switch recordings', { body: errorMessage(error), tone: 'error' });
+    } finally {
+      setSwitching(false);
     }
   };
   const joinAndStart = async (event: CalendarEvent) => {
@@ -143,6 +158,8 @@ export function NotetakerPage() {
       toast(errorMessage(error), { tone: 'error' });
     }
   };
+  const shortcut = comboLabelParts(settings.shortcuts.startNotetaker[0] ?? '').join(' + ');
+  const startTooltip = shortcut ? `Start Notetaker (${shortcut})` : 'Start Notetaker';
 
   return (
     <Page wide>
@@ -152,7 +169,7 @@ export function NotetakerPage() {
           actions={
             <>
               <IconButton label="Notetaker settings" onClick={() => openSettings('notetaker')}><Settings size={20} /></IconButton>
-              {recorder && ['awaiting_audio', 'recording', 'paused', 'finalizing'].includes(recorder.phase) ? <><Button variant="ghost" onClick={() => setStopPrompt(true)}>Stop Notetaker</Button><Button variant="secondary" onClick={() => void api.recorder.openNotepad(recorder.meetingId ?? undefined)}>Open live meeting note</Button></> : <Button variant="secondary" icon={<Video size={15} />} onClick={() => void startNotetaker()}>Start Notetaker</Button>}
+              {recorder && ['awaiting_audio', 'recording', 'paused', 'finalizing'].includes(recorder.phase) ? <><Button variant="ghost" onClick={() => setStopPrompt(true)}>Stop Notetaker</Button><Button variant="secondary" onClick={() => void api.recorder.openNotepad(recorder.meetingId ?? undefined)}>Open live meeting note</Button></> : <Button variant="secondary" icon={<Video size={15} />} title={startTooltip} onClick={() => void startNotetaker()}>Start Notetaker</Button>}
             </>
           }
         />
@@ -161,7 +178,7 @@ export function NotetakerPage() {
           onClose={() => void patchSettings({ dismissedBanners: [...settings.dismissedBanners, 'notetaker:welcome'] })}
           title="Welcome to Murmur Notetaker"
           description="Stay present while Murmur captures a local transcript, creates a clear summary, and turns decisions into action-ready notes."
-          footer={<><Button variant="ghost" onClick={() => void patchSettings({ dismissedBanners: [...settings.dismissedBanners, 'notetaker:welcome'] })}>Maybe later</Button><Button onClick={() => { void patchSettings({ dismissedBanners: [...settings.dismissedBanners, 'notetaker:welcome'] }); void startNotetaker({ title: 'Notetaker guided tour', isTourDemo: true }); }}>Try the 2-minute tour</Button></>}
+          footer={<><Button variant="ghost" onClick={() => void patchSettings({ dismissedBanners: [...settings.dismissedBanners, 'notetaker:welcome'] })}>Maybe later</Button><Button title={startTooltip} onClick={() => { void patchSettings({ dismissedBanners: [...settings.dismissedBanners, 'notetaker:welcome'] }); void startNotetaker({ title: 'Notetaker guided tour', isTourDemo: true }); }}>Try the 2-minute tour</Button></>}
         >
           <p>No bot joins your meeting. Audio and notes stay on this computer.</p>
         </Dialog>
@@ -186,7 +203,7 @@ export function NotetakerPage() {
           <div className="nt-schedule-row">
             <div className="nt-schedule-icon"><Video size={18} /></div>
             <div className="nt-grow"><div className="nt-title">Start your first meeting</div><div className="nt-subtle">2-minute guided tour</div></div>
-            <Button size="sm" onClick={() => void startNotetaker({ title: 'Notetaker guided tour', isTourDemo: true })}>Start</Button>
+            <Button size="sm" title={startTooltip} onClick={() => void startNotetaker({ title: 'Notetaker guided tour', isTourDemo: true })}>Start</Button>
           </div>
           <div className="nt-label">Upcoming</div>
           {upcoming.length ? upcoming.slice(0, 3).map((event) => {
@@ -290,7 +307,19 @@ export function NotetakerPage() {
         <Dialog open={brief !== null} onClose={() => setBrief(null)} title={brief?.title ?? 'Meeting brief'} footer={<><Button variant="ghost" onClick={() => setBrief(null)}>Close</Button>{brief && <Button onClick={() => { const event = brief.event; setBrief(null); void (event.conferenceUrl ? joinAndStart(event) : startNotetaker({ title: event.title, calendarEventId: event.id })); }}>{brief?.event.conferenceUrl ? 'Join + Start' : 'Start meeting'}</Button>}</>}><pre className="nt-brief">{brief?.content}</pre></Dialog>
         <Dialog open={askOpen} onClose={() => setAskOpen(false)} title="Ask about your meetings" description="Ask a natural-language question across your local meeting notes." footer={<><Button variant="ghost" onClick={() => setAskOpen(false)}>Close</Button><Button loading={askBusy} disabled={!askQuery.trim()} onClick={() => void askMeetings()}>Ask</Button></>}><div className="nt-ask"><Input autoFocus aria-label="Ask about your meetings" placeholder="Open action items from yesterday" value={askQuery} onChange={(event) => setAskQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void askMeetings(); }} />{askBusy && <span role="status">Searching your meeting notes…</span>}{askAnswer && <div className="ask-answer"><div>{askAnswer}</div><Button size="sm" variant="ghost" onClick={() => void api.app.copyText(askAnswer).then(() => toast('Response copied', { tone: 'success' }))}>Copy response</Button></div>}</div></Dialog>
         <Dialog open={cloudImport !== null} onClose={() => setCloudImport(null)} title={`Import from ${cloudImport ?? ''}`} footer={<Button onClick={() => setCloudImport(null)}>Done</Button>}><p>Murmur runs fully offline, so cloud account imports are unavailable. Export your meetings from {cloudImport} and use Import meetings instead.</p>{cloudImport === 'Fireflies' && <Input aria-label="Fireflies API key" placeholder="Fireflies API key" disabled />}</Dialog>
-        <Dialog open={switchPrompt} onClose={() => setSwitchPrompt(false)} title="Stop Notetaker?" description="The current recording will be saved and can be resumed later. Stop it before switching to a new meeting?" footer={<><Button variant="ghost" onClick={() => setSwitchPrompt(false)}>Cancel</Button><Button onClick={() => void api.recorder.start({ replaceActive: true }).then((next) => { setSwitchPrompt(false); if (next.meetingId) return api.recorder.openNotepad(next.meetingId); })}>Stop and switch</Button></>} />
+        <Dialog
+          open={pendingStart !== null}
+          onClose={() => { if (!switching) setPendingStart(null); }}
+          title="Switch recording?"
+          description={pendingStart?.title
+            ? `Notetaker is already recording. Start a new meeting note, or switch to “${pendingStart.title}”.`
+            : 'Notetaker is already recording. Start a new meeting note, or switch the current recording.'}
+          footer={<>
+            <Button variant="ghost" disabled={switching} onClick={() => setPendingStart(null)}>No</Button>
+            <Button variant="outline" disabled={switching} title={startTooltip} onClick={() => void switchRecording({})}>Start</Button>
+            <Button loading={switching} onClick={() => { if (pendingStart) void switchRecording(pendingStart); }}>{switching ? 'Switching…' : 'Switch'}</Button>
+          </>}
+        />
         <ConfirmDialog open={stopPrompt} title="Stop Notetaker?" body="The current recording will stop and Murmur will finish the transcript and summary." confirmLabel="Stop Notetaker" danger onClose={() => setStopPrompt(false)} onConfirm={() => { setStopPrompt(false); void api.recorder.stop(); }} />
         <ConfirmDialog open={granolaPrompt} title="Import Granola export?" body="Choose a Granola .zip or .csv export. Murmur validates the file and imports meetings locally; already written meetings stay if you cancel." confirmLabel="Choose export" onClose={() => setGranolaPrompt(false)} onConfirm={() => { setGranolaPrompt(false); void importGranolaExport(); }} />
         <ConfirmDialog
