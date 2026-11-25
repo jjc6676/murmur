@@ -23,7 +23,7 @@ function rpc(proc: ChildProcessWithoutNullStreams, id: number, method: string, p
 test('records, summarizes, organizes, imports, chats, and exposes MCP', async () => {
   test.setTimeout(180_000);
   const fixture = join(ROOT, 'tests', 'fixtures', 'dictation-sample.wav');
-  const { app, hub, userData } = await launchApp({ settings: { postOnboardingCompleted: true }, env: { MURMUR_FAKE_MIC_WAV: fixture } });
+  const { app, hub, userData } = await launchApp({ settings: { postOnboardingCompleted: true, dismissedBanners: ['notetaker:welcome'] }, env: { MURMUR_FAKE_MIC_WAV: fixture } });
   await hub.getByRole('link', { name: 'Notetaker', exact: true }).click();
   await expect(hub.getByRole('heading', { name: 'Notetaker' })).toBeVisible();
   await hub.screenshot({ path: 'docs/parity/murmur-notetaker.png' });
@@ -85,7 +85,7 @@ test('records, summarizes, organizes, imports, chats, and exposes MCP', async ()
 });
 
 test('guards active recording lifecycle and preserves transcript corrections', async () => {
-  const { app, hub, userData } = await launchApp({ settings: { postOnboardingCompleted: true } });
+  const { app, hub, userData } = await launchApp({ settings: { postOnboardingCompleted: true, dismissedBanners: ['notetaker:welcome'] } });
   await hub.getByRole('link', { name: 'Notetaker', exact: true }).click();
 
   const active = await invoke<{ meetingId: string }>(hub, 'recorder:start', { title: 'Active sync' });
@@ -108,9 +108,10 @@ test('guards active recording lifecycle and preserves transcript corrections', a
   const corrected = await invoke<{ transcript: { text: string; edited: boolean }[] }>(hub, 'meetings:correctSegment', imported[0].id, segment.id, segment.text, 'The project deadline is Monday.');
   expect(corrected.transcript[0]).toMatchObject({ text: 'The project deadline is Monday.', edited: true });
   const reverted = await invoke<{ transcript: { text: string; edited: boolean }[] }>(hub, 'meetings:revertSegment', imported[0].id, segment.id);
-  const firstCatchUp = await invoke<{ content: string }[]>(hub, 'meetings:chat', imported[0].id, 'What did I miss?');
+  const [session] = await invoke<{ id: string }[]>(hub, 'meetings:chatSessions', imported[0].id);
+  const firstCatchUp = await invoke<{ content: string }[]>(hub, 'meetings:chat', imported[0].id, session.id, 'What did I miss?', 'catch-up-1');
   expect(firstCatchUp.at(-1)?.content).toContain('[ai]');
-  const secondCatchUp = await invoke<{ content: string }[]>(hub, 'meetings:chat', imported[0].id, 'What did I miss?');
+  const secondCatchUp = await invoke<{ content: string }[]>(hub, 'meetings:chat', imported[0].id, session.id, 'What did I miss?', 'catch-up-2');
   expect(secondCatchUp.at(-1)?.content).toBe('Nothing new since you last looked.');
   expect(reverted.transcript[0]).toMatchObject({ text: segment.text, edited: false });
   await hub.goto(`file://${join(ROOT, 'out', 'renderer', 'index.html')}#/notetaker/${imported[0].id}`);

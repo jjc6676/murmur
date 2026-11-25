@@ -8,7 +8,7 @@ interface ChatSession { id: string }
 interface ChatMessage { id: string; role: string }
 
 test('meeting sections, chat sessions, artifacts, folders, and cross-meeting Ask work locally', async () => {
-  const { app, hub, userData } = await launchApp({ settings: { postOnboardingCompleted: true } });
+  const { app, hub, userData } = await launchApp({ settings: { postOnboardingCompleted: true, dismissedBanners: ['notetaker:welcome'] } });
   const transcript = join(userData, 'notetaker-b.txt');
   writeFileSync(transcript, 'You: We decided to ship the desktop release Friday.\nAlex: I will prepare the launch checklist.');
   const [meeting] = await invoke<ImportedMeeting[]>(hub, 'meetings:importFiles', [transcript]);
@@ -29,18 +29,18 @@ test('meeting sections, chat sessions, artifacts, folders, and cross-meeting Ask
 
   await hub.getByLabel('Search folders').fill('Launch');
   await hub.getByRole('button', { name: 'Create “Launch”' }).click();
-  await expect(hub.getByText('Launch', { exact: true })).toBeVisible();
+  await expect(hub.getByRole('checkbox', { name: 'Launch', exact: true })).toBeChecked();
 
   await hub.getByRole('link', { name: 'Notetaker', exact: true }).click();
   await hub.getByRole('button', { name: 'Ask about your meetings' }).click();
-  await hub.getByLabel('Ask about your meetings').fill('What ships Friday?');
+  await hub.getByRole('textbox', { name: 'Ask about your meetings' }).fill('What ships Friday?');
   await hub.getByRole('button', { name: 'Ask', exact: true }).click();
   await expect(hub.getByText(/\[ai\]/)).toBeVisible();
   await app.close();
 });
 
 test('summary translations are versioned against the original summary', async () => {
-  const { app, hub, userData } = await launchApp({ settings: { postOnboardingCompleted: true } });
+  const { app, hub, userData } = await launchApp({ settings: { postOnboardingCompleted: true, dismissedBanners: ['notetaker:welcome'] } });
   const transcript = join(userData, 'translated-summary.txt');
   writeFileSync(transcript, 'You: This meeting reviews the quarterly launch.\nSam: I own the follow-up.');
   const [meeting] = await invoke<ImportedMeeting[]>(hub, 'meetings:importFiles', [transcript]);
