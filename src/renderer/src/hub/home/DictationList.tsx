@@ -100,12 +100,17 @@ function DictationRow({ entry, onChanged }: { entry: HistoryEntry; onChanged: ()
       toast('Couldn’t save report', { body: errorMessage(error), tone: 'error' });
     }
   };
+  let sourceHost = '';
+  if (entry.appUrl) {
+    try { sourceHost = new URL(entry.appUrl).host; }
+    catch { sourceHost = entry.appUrl; }
+  }
   return (
     <article className={s.dictationRow} data-status={entry.status}>
       <time className={s.dictationTime}>{Number.isFinite(new Date(entry.timestamp).getTime()) ? new Date(entry.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '12:00 AM'}</time>
       <div className={s.dictationBody}>
         <p className={s.transcript}>{displayText(entry)}</p>
-        <span className={s.appLabel}>{entry.appTitle || entry.app || 'Unknown app'}{entry.isArchived ? ' · Archived' : ''}</span>
+        <span className={s.appLabel} title={entry.appUrl ?? undefined}>{entry.appTitle || entry.app || 'Unknown app'}{sourceHost ? ` · ${sourceHost}` : ''}{entry.isArchived ? ' · Archived' : ''}</span>
       </div>
       <div className={s.rowActions}>
         <IconButton label="Copy transcript" onClick={() => void copy()}><Copy size={16} /></IconButton>

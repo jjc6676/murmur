@@ -5,11 +5,11 @@ import { launchApp, invoke } from './helpers';
 
 function insertHistory(db: DatabaseSync, id: string, timestamp: string, text: string, app: string, words: number, speechDuration: number): void {
   db.prepare(`INSERT INTO history (
-    id, timestamp, asrText, formattedText, status, app, appTitle, duration, speechDuration,
+    id, timestamp, asrText, formattedText, status, app, appTitle, appUrl, duration, speechDuration,
     numWords, language, mode, cleanupLevel, styleContext, hasRevertedAI, isArchived,
     numDictionaryReplacements, numWordsCorrected, latencyMs
-  ) VALUES (?, ?, ?, ?, 'success', ?, ?, ?, ?, ?, 'en', 'ptt', 'light', 'other', 0, 0, 2, 4, 120)`)
-    .run(id, timestamp, text, text, app, app === 'slack' ? 'Slack' : 'Notepad', speechDuration, speechDuration, words);
+  ) VALUES (?, ?, ?, ?, 'success', ?, ?, ?, ?, ?, ?, 'en', 'ptt', 'light', 'other', 0, 0, 2, 4, 120)`)
+    .run(id, timestamp, text, text, app, app === 'slack' ? 'Slack' : 'Notepad', app === 'slack' ? 'https://app.slack.com/client/local/channel' : null, speechDuration, speechDuration, words);
 }
 
 test('home, history, insights, notifications, skills, and memory work end to end', async () => {
@@ -24,8 +24,10 @@ test('home, history, insights, notifications, skills, and memory work end to end
     db.prepare("INSERT INTO notifications (id, type, key, title, text, isRead, isArchived, createdAt) VALUES ('notice-1', 'milestone', 'words-1000', 'One thousand words', 'Your voice is doing the heavy lifting.', 0, 0, ?)").run(now.toISOString());
     db.close();
     await hub.reload();
+    const welcomeBack = hub.getByRole('dialog', { name: 'Welcome back' });
+    if (await welcomeBack.isVisible()) await welcomeBack.getByRole('button', { name: 'Not now' }).click();
 
-    await expect(hub.getByRole('heading', { name: 'Welcome back, Jason!' })).toBeVisible();
+    await expect(hub.getByRole('heading', { name: 'Welcome back, Jason!', level: 1 })).toBeVisible();
     await expect(hub.getByText('A seeded home transcript for the launch plan.')).toBeVisible();
     await expect(hub.getByText('2.7K')).toBeVisible();
     await hub.screenshot({ path: 'docs/parity/murmur-home.png' });
@@ -44,6 +46,7 @@ test('home, history, insights, notifications, skills, and memory work end to end
     await expect(hub.getByRole('heading', { name: 'History' })).toBeVisible();
     await hub.getByPlaceholder('Search past transcripts').fill('quarterly roadmap');
     await expect(hub.getByText('A searchable quarterly roadmap discussion.')).toBeVisible();
+    await expect(hub.getByText('app.slack.com')).toBeVisible();
     await hub.getByPlaceholder('Search past transcripts').fill('does-not-exist');
     await expect(hub.getByText('No matching dictations')).toBeVisible();
     await hub.getByPlaceholder('Search past transcripts').fill('quarterly');
@@ -54,6 +57,12 @@ test('home, history, insights, notifications, skills, and memory work end to end
     await expect(hub.getByText('320', { exact: true }).first()).toBeVisible();
     await expect(hub.getByText('120', { exact: true }).first()).toBeVisible();
     await expect(hub.getByLabel('Activity heatmap')).toBeVisible();
+    await hub.getByRole('button', { name: 'Share' }).click();
+    const sharing = hub.getByRole('dialog', { name: 'Share insights' });
+    await expect(sharing.getByText('Murmur Highlights')).toBeVisible();
+    await expect(sharing.getByText('Murmur Streak')).toBeVisible();
+    await expect(sharing.getByText('Your Voice Profile')).toBeVisible();
+    await sharing.getByRole('button', { name: 'Close' }).click();
     await hub.screenshot({ path: 'docs/parity/murmur-insights.png' });
 
     await hub.getByLabel(/Notifications/).click();
@@ -76,6 +85,20 @@ test('home, history, insights, notifications, skills, and memory work end to end
     await hub.getByRole('button', { name: 'Save', exact: true }).click();
     await hub.getByRole('tab', { name: 'My Skills' }).click();
     await expect(hub.getByRole('button', { name: /Launch recap/ })).toBeVisible();
+    await hub.getByRole('button', { name: /Launch recap/ }).click();
+    const skillDetail = hub.getByRole('dialog', { name: 'Launch recap' });
+    await expect(skillDetail.getByText('Author')).toBeVisible();
+    await expect(skillDetail.getByText('You', { exact: true })).toBeVisible();
+    await skillDetail.getByRole('button', { name: 'Close' }).click();
+    await hub.getByRole('button', { name: 'Create Skill' }).click();
+    await hub.getByLabel('Name').fill('My action items');
+    await hub.getByLabel('One-line description').fill('My preferred action item format.');
+    await hub.getByLabel('Instructions').fill('List every action item with an owner.');
+    await hub.getByLabel('Slash command').fill('action-items');
+    await hub.getByRole('button', { name: 'Save', exact: true }).click();
+    await hub.getByRole('button', { name: /My action items/ }).click();
+    await expect(hub.getByText('This personal skill overrides the built-in /action-items command.')).toBeVisible();
+    await hub.getByRole('dialog', { name: 'My action items' }).getByRole('button', { name: 'Close' }).click();
     await hub.screenshot({ path: 'docs/parity/murmur-skills.png' });
 
     await hub.evaluate("location.hash = '#/memory'");
@@ -83,6 +106,11 @@ test('home, history, insights, notifications, skills, and memory work end to end
     await hub.getByRole('button', { name: 'Start' }).click();
     await expect(hub.getByRole('button', { name: 'Knowledge' })).toBeVisible({ timeout: 20_000 });
     await expect(hub.getByRole('button', { name: 'Dictation writing style' })).toBeVisible();
+    await hub.getByRole('tab', { name: 'Search' }).click();
+    await hub.getByPlaceholder('Search every document').fill('dictation');
+    await expect(hub.getByText(/line/).first()).toBeVisible();
+    await hub.locator('button').filter({ hasText: /Dictation writing style/ }).first().click();
+    await expect(hub.getByRole('button', { name: 'Back to results' })).toBeVisible();
     await hub.screenshot({ path: 'docs/parity/murmur-memory.png' });
   } finally {
     await app.close();

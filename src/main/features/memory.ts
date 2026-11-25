@@ -174,11 +174,13 @@ export function registerMemory(): void {
     search(query) {
       const needle = query.trim().toLocaleLowerCase();
       if (!needle) return [];
-      return db.all<MemoryRow>('SELECT * FROM memory_docs ORDER BY title').flatMap((row) =>
-        row.content.split(/\r?\n/).flatMap((text, index) =>
+      return db.all<MemoryRow>('SELECT * FROM memory_docs ORDER BY title').flatMap((row) => {
+        const titleMatch = row.title.toLocaleLowerCase().includes(needle) ? [{ docId: row.id, title: row.title, line: 0, text: `Document title · ${row.title}` }] : [];
+        const contentMatches = row.content.split(/\r?\n/).flatMap((text, index) =>
           text.toLocaleLowerCase().includes(needle) ? [{ docId: row.id, title: row.title, line: index + 1, text }] : [],
-        ),
-      );
+        );
+        return [...titleMatch, ...contentMatches];
+      });
     },
     addFact(text, source) {
       const clean = text.trim();

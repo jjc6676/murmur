@@ -20,17 +20,22 @@
 .result { text-align: left; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--card); }
 .result strong, .result span { display: block; }
 .result span { color: var(--foreground-tertiary); font-size: 12px; margin-bottom: 4px; }
-.diff { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.diff pre { white-space: pre-wrap; padding: 12px; background: var(--background-tertiary); border-radius: var(--radius-md); overflow: auto; }
 .status { display: flex; gap: 8px; align-items: center; }
-.runBar { margin: 12px 0; padding: 9px 12px; display: flex; justify-content: space-between; gap: 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--background-secondary); color: var(--foreground-secondary); font-size: 12px; }
-.runBar > span { display: flex; align-items: center; gap: 8px; }
+.runBar { margin: 12px 0; padding: 9px 12px; display: flex; align-items:center; justify-content: space-between; gap: 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--background-secondary); color: var(--foreground-secondary); font-size: 12px; }
+.runBar > span { flex:0 0 auto; }
+.runChips { display:flex; flex-wrap:wrap; gap:6px; min-width:0; }
+.runChip,.overflowChip { display:inline-flex; align-items:center; gap:6px; padding:4px 7px; border:1px solid var(--border); border-radius:999px; background:var(--card); white-space:nowrap; }
+.overflowChip { color:var(--foreground-tertiary); }
 .changeBanner { margin-top: 12px; padding: 10px 13px; display: flex; align-items: center; gap: 8px; border-left: 3px solid var(--accent-text); background: var(--accent-soft); font-size: 12px; }
 .changeBanner span { color: var(--foreground-secondary); }
 .collection { margin-top: 18px; display: grid; gap: 10px; }
 .collection article { padding: 13px 15px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
 .collection article > div { min-width: 0; display: grid; gap: 3px; }
 .collection span, .collection p { color: var(--foreground-tertiary); font-size: 12px; }
+.truncated { padding:10px; text-align:center; color:var(--foreground-tertiary); font-size:12px; }
+.diffViewer { margin-top:14px; }
+.diffControls { display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--foreground-tertiary); font-size:12px; }
+.diffViewer pre { max-height:440px; overflow:auto; padding:14px; border-radius:10px; background:var(--background-tertiary); white-space:pre-wrap; line-height:1.55; }
 .collection p { margin: 0; overflow-wrap: anywhere; }
 .statusVocabulary { display: flex; flex-wrap: wrap; gap: 6px; }
-@media (max-width: 760px) { .workspace { grid-template-columns: 1fr; } .tree { max-height: 220px; } .diff { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .workspace { grid-template-columns: 1fr; } .tree { max-height: 220px; } .runBar,.viewerHeader,.diffControls { align-items:flex-start; flex-direction:column; } }

@@ -308,6 +308,28 @@ const MIGRATIONS: string[] = [
   ALTER TABLE history ADD COLUMN instructStatus TEXT;
   ALTER TABLE history ADD COLUMN instructRoute TEXT;
   `,
+  `
+  ALTER TABLE dictionary ADD COLUMN replacementHtml TEXT;
+  `,
+  `
+  CREATE TABLE skills_without_unique_command (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL,
+    command TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'more',
+    scope TEXT NOT NULL DEFAULT 'both',
+    builtIn INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL,
+    modifiedAt TEXT NOT NULL
+  );
+  INSERT INTO skills_without_unique_command
+    SELECT id, name, description, instructions, command, category, scope, builtIn, createdAt, modifiedAt FROM skills;
+  DROP TABLE skills;
+  ALTER TABLE skills_without_unique_command RENAME TO skills;
+  CREATE INDEX skills_command ON skills(command);
+  `,
 ];
 
 export type Row = Record<string, SQLInputValue>;

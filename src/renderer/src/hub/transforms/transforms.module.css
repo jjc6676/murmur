@@ -27,7 +27,9 @@
 .resultGrid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:16px; }
 .result { padding:14px; border-radius:10px; background:var(--background-secondary); white-space:pre-wrap; }
 .result b { display:block; margin-bottom:8px; }
-.resultActions { display:flex; justify-content:flex-end; margin-top:12px; }
+.resultActions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; margin-top:12px; }
+.tryButtons { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.fileInput { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
 .history { margin-top:26px; }
 .historyRow { display:grid; grid-template-columns:120px 1fr auto; gap:12px; padding:12px 0; border-bottom:1px solid var(--border); font-size:13px; }
 .historyText { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--foreground-secondary); }

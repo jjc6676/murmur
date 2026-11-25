@@ -116,7 +116,10 @@ export function MemoryPage() {
         actions={<><Button variant="outline" onClick={() => void api.memory.runDreamer()}>Run Dreamer</Button><Button variant="outline" loading={status?.state === 'running'} onClick={() => void build()}>Refresh memory</Button><Button variant="ghost" icon={<Trash2 size={15} />} onClick={() => setDeleteOpen(true)}>Delete all memory</Button></>}
       />
       <div className={s.runBar}>
-        <span><Badge tone={status?.state === 'running' ? 'orange' : 'success'}>{status?.state === 'running' ? 'Running' : 'Changed memory'}</Badge> Meeting agent · Catch up</span>
+        <div className={s.runChips}>
+          {(events.length ? events.slice(0, 3) : [{ id: 'current', source: 'Meeting agent', title: 'Catch up', detail: 'Local source refresh', status: status?.state === 'running' ? 'Running' : 'Changed memory', createdAt: '' }]).map((event) => <span className={s.runChip} key={event.id} title={event.detail}><Badge tone={event.status === 'Running' ? 'orange' : event.status === 'Didn’t finish' ? 'danger' : 'success'}>{event.status}</Badge>{event.source} · {event.title}</span>)}
+          {events.length > 3 && <span className={s.overflowChip}>+{events.length - 3} more</span>}
+        </div>
         <span>{status?.sources.meetings ?? 0} meetings · {status?.sources.dictations ?? 0} dictations · {status?.sources.notes ?? 0} notes</span>
       </div>
       <Tabs value={tab} onChange={setTab} tabs={[{ id: 'documents', label: 'Documents' }, { id: 'events', label: 'Events' }, { id: 'people', label: 'People' }, { id: 'links', label: 'Links' }, { id: 'agents', label: 'Agents' }, { id: 'search', label: 'Search' }]} />
@@ -130,24 +133,40 @@ export function MemoryPage() {
             })}
           </aside>
           <article className={s.viewer}>
-            {selected ? <><header className={s.viewerHeader}><div><h2>{selected.title}</h2><p className={s.meta}>Changed by {selected.changedBy} · {new Date(selected.modifiedAt).toLocaleString()} · {selected.source}</p></div><div className={s.actions}>{selected.versions.length > 0 && <Button variant="ghost" icon={<History size={15} />} onClick={() => setHistoryOpen(true)}>History</Button>}{editing ? <><Button variant="ghost" onClick={() => setEditing(false)}>Cancel</Button><Button onClick={() => void save()}>Save</Button></> : <Button variant="outline" onClick={() => { setContent(selected.content); setEditing(true); }}>Edit</Button>}</div></header>{editing ? <TextArea className={s.editor} value={content} onChange={(event) => setContent(event.target.value)} /> : <div className={s.markdown}>{selected.content}</div>}</> : <EmptyState title="Choose a document" />}
+            {selected ? <><header className={s.viewerHeader}><div><h2>{selected.title}</h2><p className={s.meta}>Changed by {selected.changedBy} · {new Date(selected.modifiedAt).toLocaleString()} · {selected.source}</p></div><div className={s.actions}>{query && <Button variant="ghost" onClick={() => setTab('search')}>Back to results</Button>}{selected.versions.length > 0 && <Button variant="ghost" icon={<History size={15} />} onClick={() => setHistoryOpen(true)}>History</Button>}{editing ? <><Button variant="ghost" onClick={() => setEditing(false)}>Cancel</Button><Button onClick={() => void save()}>Save</Button></> : <Button variant="outline" onClick={() => { setContent(selected.content); setEditing(true); }}>Edit</Button>}</div></header>{editing ? <TextArea className={s.editor} value={content} onChange={(event) => setContent(event.target.value)} /> : <div className={s.markdown}>{selected.content}</div>}</> : <EmptyState title="Choose a document" />}
           </article>
         </div>
       ) : tab === 'search' ? (
         <div className={s.search}>
           <SearchInput value={query} onChange={setQuery} placeholder="Search every document" autoFocus />
-          {results.map((result) => <button type="button" className={s.result} key={`${result.docId}-${result.line}`} onClick={() => { const doc = docs.find((item) => item.id === result.docId); if (doc) choose(doc); }}><span>{result.title} · line {result.line}</span><strong>{result.text}</strong></button>)}
+          {results.slice(0, 100).map((result) => <button type="button" className={s.result} key={`${result.docId}-${result.line}`} onClick={() => { const doc = docs.find((item) => item.id === result.docId); if (doc) choose(doc); }}><span>{result.title}{result.line ? ` · line ${result.line}` : ' · title'} · {docs.find((doc) => doc.id === result.docId)?.source ?? 'local memory'}</span><strong>{result.text}</strong></button>)}
+          {results.length > 100 && <div className={s.truncated}>Showing the first 100 of {results.length} matches. Refine your search to see more.</div>}
           {query && !results.length && <EmptyState icon={<Search size={28} />} title="No matching memory" body={`Nothing matched “${query}”.`} />}
         </div>
       ) : (
         <MemoryCollection tab={tab} events={events} people={people} links={links} status={status} onRunDreamer={() => void api.memory.runDreamer()} />
       )}
       <Dialog open={historyOpen} onClose={() => setHistoryOpen(false)} title="Version history" width={800}>
-        {selected?.versions.length ? <><label>Version <select value={versionIndex} onChange={(event) => setVersionIndex(Number(event.target.value))}>{selected.versions.map((version, index) => <option value={index} key={version.modifiedAt}>{new Date(version.modifiedAt).toLocaleString()} · {version.changedBy}</option>)}</select></label><div className={s.diff}><div><h3>Removed</h3><pre>{oldVersion?.content.split(/\r?\n/).filter((line) => !selected.content.split(/\r?\n/).includes(line)).map((line) => `- ${line}`).join('\n') || 'No removed lines'}</pre></div><div><h3>Added</h3><pre>{selected.content.split(/\r?\n/).filter((line) => !oldVersion?.content.split(/\r?\n/).includes(line)).map((line) => `+ ${line}`).join('\n') || 'No added lines'}</pre></div></div></> : <EmptyState icon={<Clock3 size={28} />} title="No earlier versions" />}
+        {selected?.versions.length ? <><label>Version <select value={versionIndex} onChange={(event) => setVersionIndex(Number(event.target.value))}>{selected.versions.map((version, index) => <option value={index} key={version.modifiedAt}>{new Date(version.modifiedAt).toLocaleString()} · {version.changedBy}</option>)}</select></label>{oldVersion && <MemoryDiff before={oldVersion.content} after={selected.content} />}</> : <EmptyState icon={<Clock3 size={28} />} title="No earlier versions" />}
       </Dialog>
       <ConfirmDialog open={deleteOpen} title="Delete all memory?" body="This stops memory work and permanently removes every generated document and version." confirmLabel="Delete all memory" danger onClose={() => setDeleteOpen(false)} onConfirm={() => void api.memory.deleteAll().then(() => { setDeleteOpen(false); setDocs([]); setSelected(null); void refresh(); })} />
     </Page>
   );
+}
+
+function MemoryDiff({ before, after }: { before: string; after: string }) {
+  const [showUnchanged, setShowUnchanged] = useState(false);
+  if (before.length + after.length > 20_000) return <EmptyState title="Changes too long to display" body="Open the document versions separately to review the complete text." />;
+  const beforeLines = before.split(/\r?\n/);
+  const afterLines = after.split(/\r?\n/);
+  const removed = beforeLines.filter((line) => !afterLines.includes(line));
+  const added = afterLines.filter((line) => !beforeLines.includes(line));
+  const unchanged = afterLines.filter((line) => beforeLines.includes(line));
+  if (!removed.length && !added.length) return <EmptyState title="No changes in this version" body="The selected version and current document have the same content." />;
+  return <div className={s.diffViewer}>
+    <div className={s.diffControls}><span>{removed.length} removed · {added.length} added · {unchanged.length} unchanged</span>{unchanged.length > 0 && <Button size="sm" variant="ghost" onClick={() => setShowUnchanged((current) => !current)}>{showUnchanged ? 'Hide unchanged lines' : `Show ${unchanged.length} unchanged lines`}</Button>}</div>
+    <pre>{removed.map((line) => `- ${line}`).join('\n')}{removed.length && added.length ? '\n' : ''}{added.map((line) => `+ ${line}`).join('\n')}{showUnchanged ? `\n${unchanged.map((line) => `  ${line}`).join('\n')}` : ''}</pre>
+  </div>;
 }
 
 function MemoryCollection({

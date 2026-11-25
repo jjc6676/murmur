@@ -172,6 +172,7 @@ export function registerApp(): void {
           personalizationComplete: false,
           writingSamples: [],
           styles: DEFAULT_SETTINGS.styles,
+          customStyles: [],
         });
       }
       if (tables.includes('history')) rmSync(paths.audioDir, { recursive: true, force: true });
@@ -184,13 +185,13 @@ export function registerApp(): void {
       const text = readFileSync(path, 'utf8');
       let imported = 0;
       let skipped = 0;
-      const lines: { phrase: string; replacement: string | null }[] = [];
+      const lines: { phrase: string; replacement: string | null; replacementHtml?: string | null }[] = [];
       if (/\.json$/i.test(path)) {
         const data: unknown = JSON.parse(text);
         if (Array.isArray(data))
           for (const item of data) {
             if (typeof item === 'string') lines.push({ phrase: item, replacement: null });
-            else if (item && typeof item === 'object' && 'phrase' in item) lines.push({ phrase: String(item.phrase), replacement: 'replacement' in item && item.replacement ? String(item.replacement) : null });
+            else if (item && typeof item === 'object' && 'phrase' in item) lines.push({ phrase: String(item.phrase), replacement: 'replacement' in item && item.replacement ? String(item.replacement) : null, replacementHtml: 'replacementHtml' in item && item.replacementHtml ? String(item.replacementHtml) : null });
           }
       } else {
         for (const raw of text.split(/\r?\n/)) {
@@ -202,7 +203,7 @@ export function registerApp(): void {
       }
       for (const l of lines) {
         try {
-          addEntry({ phrase: l.phrase, replacement: l.replacement, isSnippet: kind === 'snippets', source: 'import' });
+          addEntry({ phrase: l.phrase, replacement: l.replacement, replacementHtml: l.replacementHtml, isSnippet: kind === 'snippets', source: 'import' });
           imported++;
         } catch {
           skipped++;

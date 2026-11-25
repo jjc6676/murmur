@@ -74,7 +74,7 @@ export function NotetakerChecklist() {
           );
         })}
       </div>
-      <ConfirmDialog open={skip !== null} title="Are you sure?" body={`You can still ${skip?.label.toLowerCase()} later from Notetaker settings.`} confirmLabel="Skip for now" onClose={() => setSkip(null)} onConfirm={() => { if (skip) void complete(skip.id); setSkip(null); }} />
+      <ConfirmDialog open={skip !== null} title="Are you sure?" body={skip?.id === 'mcp' ? 'MCP lets AI tools search your local notes, answer questions, and take actions from calls. You can still set it up later in Notetaker settings.' : `You can still ${skip?.label.toLowerCase()} later from Notetaker settings.`} confirmLabel="Skip for now" onClose={() => setSkip(null)} onConfirm={() => { if (skip) void complete(skip.id); setSkip(null); }} />
       <Dialog
         open={tourStep !== null}
         onClose={() => setTourStep(null)}

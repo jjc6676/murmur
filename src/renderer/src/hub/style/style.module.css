@@ -36,4 +36,13 @@
 .wizardFooter { display:flex; justify-content:space-between; width:100%; }
 .done { text-align:center; padding:28px 10px; }
 .doneIcon { display:grid; place-items:center; width:54px; height:54px; margin:0 auto 16px; border-radius:50%; background:var(--success-soft); color:var(--success); }
-@media (max-width:760px) { .toneGrid,.wizardChoices { grid-template-columns:1fr; } .cleanupCard { grid-template-columns:24px 1fr; } .cleanupExample { grid-column:2; } }
+.voiceHeader { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
+.voiceGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+.voiceCard { min-height:150px; padding:16px; text-align:left; border:1px solid var(--border); border-radius:14px; color:var(--foreground); background:var(--card); cursor:pointer; }
+.voiceCard:hover { border-color:var(--foreground-tertiary); background:var(--row-hover); }
+.voiceCard h3 { margin:14px 0 7px; font-size:16px; }
+.voiceCard p { margin:0 0 14px; color:var(--foreground-secondary); text-transform:capitalize; }
+.voiceCard > span:last-child { color:var(--foreground-tertiary); font-size:12px; }
+.voiceEmpty { margin-top:12px; padding:18px; text-align:center; border:1px dashed var(--border); border-radius:12px; color:var(--foreground-tertiary); }
+.styleEditor { display:grid; gap:16px; }
+@media (max-width:760px) { .toneGrid,.wizardChoices,.voiceGrid { grid-template-columns:1fr; } .cleanupCard { grid-template-columns:24px 1fr; } .cleanupExample { grid-column:2; } .voiceHeader { flex-direction:column; } }

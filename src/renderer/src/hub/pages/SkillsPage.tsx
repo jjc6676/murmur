@@ -40,9 +40,12 @@ export function SkillsPage() {
   const [askState, setAskState] = useState<'idle' | 'thinking' | 'stopped' | 'failed'>('idle');
   const [thinkingSeconds, setThinkingSeconds] = useState(0);
   const askRequest = useRef<string | null>(null);
+  const [memorySaved, setMemorySaved] = useState(false);
+  const [memoryAction, setMemoryAction] = useState<'idle' | 'running' | 'done' | 'failed'>('idle');
   const answerRef = useRef<HTMLDivElement | null>(null);
   const refresh = useCallback(() => void api.skills.list().then(setSkills), []);
   useEffect(refresh, [refresh]);
+  useEffect(() => { void api.memory.list().then((docs) => setMemorySaved(docs.some((doc) => doc.title === 'Saved facts'))); }, []);
   const visible = useMemo(() => skills.filter((skill) => {
     const matchesTab = tab === 'built-in' ? skill.builtIn : tab === 'mine' ? !skill.builtIn : false;
     return matchesTab && `${skill.name} ${skill.description}`.toLowerCase().includes(query.toLowerCase());
@@ -98,7 +101,7 @@ export function SkillsPage() {
     if (!draft.name.trim() || !draft.description.trim() || !draft.instructions.trim()) return setError('Name, description, and instructions are required');
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(command)) return setError('Slash command must use lowercase letters, numbers, and single hyphens');
     if (RESERVED.has(command)) return setError('That slash command is reserved');
-    if (skills.some((skill) => skill.command === command && skill.id !== draft.id)) return setError('That slash command is already in use');
+    if (skills.some((skill) => skill.command === command && skill.id !== draft.id && !skill.builtIn)) return setError('That slash command is already used by a personal skill');
     try {
       await api.skills.save({ ...draft, command });
       setDraft(null);
@@ -139,6 +142,29 @@ export function SkillsPage() {
     }
     setDraftAction(null);
   };
+  const saveToMemory = async (text: string, source: string) => {
+    setMemoryAction('running');
+    try {
+      await api.memory.addFact(text, source);
+      toast(memorySaved ? 'Saved to memory' : 'Your first memory was saved', { body: memorySaved ? undefined : 'Murmur can use this local fact in future memory searches.', tone: 'success' });
+      setMemorySaved(true);
+      setMemoryAction('done');
+    } catch (saveError) {
+      setMemoryAction('failed');
+      toast('Couldn’t save to memory', { body: errorMessage(saveError), tone: 'error' });
+    }
+  };
+  const removeFromMemory = async (text: string) => {
+    setMemoryAction('running');
+    try {
+      await api.memory.removeFact(text);
+      setMemoryAction('done');
+      toast('Removed from memory', { tone: 'success' });
+    } catch (removeError) {
+      setMemoryAction('failed');
+      toast('Couldn’t remove from memory', { body: errorMessage(removeError), tone: 'error' });
+    }
+  };
   return (
     <Page wide>
       <PageHeader title="Skills" actions={<Button icon={<Plus size={16} />} onClick={() => { setError(null); setDraft({ ...EMPTY_DRAFT }); }}>Create Skill</Button>} />
@@ -165,14 +191,15 @@ export function SkillsPage() {
           {askAnswer && <Button size="sm" variant="ghost" onClick={() => answerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })}>Scroll to answer</Button>}
           <span>{askState === 'thinking' ? `Thinking · ${thinkingSeconds}s` : askState === 'stopped' ? 'Stopped' : askState === 'failed' ? 'Failed' : ''}</span>
         </div>
-        {(askState === 'thinking' || askAnswer) && <p>
-          {['Searching meetings', 'Reading summaries', 'Drafting answer'].map((step, index) => <span key={step}>{step} <Badge tone={askState === 'failed' ? 'danger' : askAnswer ? 'success' : index === 0 ? 'orange' : 'default'}>{askState === 'failed' ? 'Failed' : askAnswer ? 'Done' : index === 0 ? 'Running' : 'Waiting'}</Badge>{' '}</span>)}
+        {(askState !== 'idle' || askAnswer) && <p>
+          {['Finding participants', 'Reading summaries', 'Searching meetings', 'Drafting answer'].map((step, index) => <span key={step}>{step} <Badge tone={askState === 'failed' ? 'danger' : askState === 'stopped' ? 'default' : askAnswer ? 'success' : index === 0 ? 'orange' : 'default'}>{askState === 'failed' ? 'Failed' : askState === 'stopped' ? 'Blocked' : askAnswer ? 'Done' : index === 0 ? 'Running' : 'Waiting'}</Badge>{' '}</span>)}
+          {memoryAction !== 'idle' && <span>Saving or removing memory <Badge tone={memoryAction === 'failed' ? 'danger' : memoryAction === 'running' ? 'orange' : 'success'}>{memoryAction === 'failed' ? 'Failed' : memoryAction === 'running' ? 'Running' : 'Done'}</Badge></span>}
         </p>}
         {askAnswer && <div ref={answerRef} className={s.result}>
           {askAnswer}
           <div className={s.actions}>
-            <Button size="sm" icon={<Brain size={14} />} onClick={() => void api.memory.addFact(askAnswer, 'Ask').then(() => toast('Saved to memory', { tone: 'success' }))}>Save to memory</Button>
-            <Button size="sm" variant="outline" onClick={() => void api.memory.removeFact(askAnswer).then(() => toast('Removed from memory', { tone: 'success' }))}>Remove from memory</Button>
+            <Button size="sm" icon={<Brain size={14} />} onClick={() => void saveToMemory(askAnswer, 'Ask')}>Save to memory</Button>
+            <Button size="sm" variant="outline" onClick={() => void removeFromMemory(askAnswer)}>Remove from memory</Button>
           </div>
         </div>}
       </Card>
@@ -187,7 +214,12 @@ export function SkillsPage() {
         <EmptyState title={query ? `No skills match “${query}”` : 'No skills yet'} body={tab === 'mine' ? 'Create a skill for your own meeting workflow.' : undefined} />
       )}
       <Dialog open={!!selected} onClose={() => setSelected(null)} title={selected?.name} description={selected?.description} width={620}>
-        {selected && <div className={s.detail}><Card padded><strong>Instructions</strong><p>{selected.instructions}</p><code>/{selected.command}</code></Card><div className={s.actions}><Button onClick={() => void openRun()}>Use</Button><Button variant="outline" onClick={() => { setError(null); setDraft({ ...selected }); setSelected(null); }}>Edit</Button><Button variant="outline" onClick={() => { setError(null); setDraft({ ...selected, id: undefined, name: `${selected.name} copy`, command: `${selected.command}-copy` }); setSelected(null); }}>Save a copy</Button>{!selected.builtIn && <Button variant="danger" icon={<Trash2 size={15} />} onClick={() => setDeleteOpen(true)}>Delete</Button>}</div></div>}
+        {selected && <div className={s.detail}>
+          {skills.some((skill) => skill.id !== selected.id && skill.command === selected.command) && <div className={s.shadowNotice}>{selected.builtIn ? `A personal skill overrides /${selected.command}. That personal skill runs when you use the command.` : `This personal skill overrides the built-in /${selected.command} command.`}</div>}
+          <Card padded><strong>Instructions</strong><p>{selected.instructions}</p><code>/{selected.command}</code></Card>
+          <dl className={s.metadata}><div><dt>Author</dt><dd>{selected.builtIn ? 'Murmur' : 'You'}</dd></div><div><dt>Sharing</dt><dd>{selected.builtIn ? 'Built-in on this device' : 'Private to you'}</dd></div><div><dt>Edited</dt><dd>{new Date(selected.modifiedAt).toLocaleDateString()} · {selected.builtIn ? 'Murmur' : 'you'}</dd></div><div><dt>Run scope</dt><dd>{selected.scope === 'both' ? 'One or multiple meetings' : selected.scope === 'one' ? 'One meeting' : 'Multiple meetings'}</dd></div></dl>
+          <div className={s.actions}><Button onClick={() => void openRun()}>Use</Button><Button variant="outline" onClick={() => { setError(null); setDraft(selected.builtIn ? { ...selected, id: undefined } : { ...selected }); setSelected(null); }}>Edit</Button><Button variant="outline" onClick={() => { setError(null); setDraft({ ...selected, id: undefined, name: `${selected.name} copy`, command: `${selected.command}-copy` }); setSelected(null); }}>Save a copy</Button>{!selected.builtIn && <Button variant="danger" icon={<Trash2 size={15} />} onClick={() => setDeleteOpen(true)}>Delete</Button>}</div>
+        </div>}
       </Dialog>
       <Dialog open={!!draft} onClose={() => setDraft(null)} title={draft?.id ? 'Edit Skill' : 'Create Skill'} width={620} footer={<><Button variant="ghost" onClick={() => setDraft(null)}>Cancel</Button><Button onClick={() => void save()}>Save</Button></>}>
         {draft && (
@@ -212,7 +244,7 @@ export function SkillsPage() {
             <Button variant="outline" icon={<Mail size={15} />} onClick={() => openDraft('email')}>Email</Button>
             <Button variant="outline" icon={<MessageSquare size={15} />} onClick={() => openDraft('slack')}>Slack</Button>
             <Button variant="outline" icon={<FileText size={15} />} onClick={() => openDraft('notion')}>Notion</Button>
-            <Button icon={<Brain size={15} />} onClick={() => void api.memory.addFact(result, `Skill: ${selected?.name ?? 'Ask'}`).then(() => toast('Saved to memory', { tone: 'success' }))}>Save to memory</Button>
+            <Button icon={<Brain size={15} />} onClick={() => void saveToMemory(result, `Skill: ${selected?.name ?? 'Ask'}`)}>Save to memory</Button>
           </div>
         ) : <Button loading={running} disabled={!meetingIds.length} onClick={() => void run()}>Run skill</Button>}
       >

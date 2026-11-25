@@ -12,5 +12,10 @@
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .meetings { max-height: 280px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
 .result { white-space: pre-wrap; max-height: 430px; overflow: auto; padding: 16px; background: var(--background-tertiary); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: 13px; }
+.shadowNotice { padding:10px 12px; border:1px solid var(--warning); border-radius:9px; color:var(--foreground-secondary); background:var(--warning-soft); font-size:13px; }
+.metadata { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:0; }
+.metadata div { padding:10px; border-radius:9px; background:var(--background-secondary); }
+.metadata dt { color:var(--foreground-tertiary); font-size:11px; text-transform:uppercase; }
+.metadata dd { margin:3px 0 0; font-size:13px; }
 @media (max-width: 800px) { .gallery { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 560px) { .gallery { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .gallery,.metadata { grid-template-columns: 1fr; } }

@@ -85,6 +85,7 @@ export interface DictionaryEntry {
   id: string;
   phrase: string; // word to recognise, or misspelling when replacement set
   replacement: string | null; // correct spelling (correction rule) / expansion for snippets
+  replacementHtml: string | null; // rich HTML expansion for snippets; replacement remains the plain-text fallback
   isSnippet: boolean;
   isStarred: boolean;
   source: 'manual' | 'auto' | 'import';
@@ -101,6 +102,17 @@ export interface VoiceStyle {
   context: StyleContext;
   tone: StyleTone;
   apps: string[]; // process names / site keywords this style applies to
+}
+
+export interface CustomVoiceStyle {
+  id: string;
+  name: string;
+  tone: StyleTone;
+  cleanupLevel: CleanupLevel;
+  instructions: string;
+  apps: string[];
+  createdAt: string;
+  modifiedAt: string;
 }
 
 export interface TransformDef {

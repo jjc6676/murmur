@@ -24,6 +24,7 @@ import type {
   Stats,
   Todo,
   TransformRun,
+  TranscriptSegment,
   VoiceProfile,
 } from './types';
 
@@ -98,8 +99,8 @@ export interface HistoryApi {
 
 export interface DictionaryApi {
   list(opts: { snippets: boolean; query?: string; sort?: DictionarySort }): DictionaryEntry[];
-  add(entry: { phrase: string; replacement?: string | null; isSnippet: boolean }): { entry: DictionaryEntry; warning: string | null };
-  update(id: string, patch: { phrase?: string; replacement?: string | null; isStarred?: boolean }): { entry: DictionaryEntry; warning: string | null };
+  add(entry: { phrase: string; replacement?: string | null; replacementHtml?: string | null; isSnippet: boolean }): { entry: DictionaryEntry; warning: string | null };
+  update(id: string, patch: { phrase?: string; replacement?: string | null; replacementHtml?: string | null; isStarred?: boolean }): { entry: DictionaryEntry; warning: string | null };
   remove(ids: string[]): void;
   counts(): { words: number; snippets: number };
 }

@@ -3,13 +3,15 @@ import type { AppCategory, MeetingAnalytics, Stats, VoiceProfile } from '@shared
 import { CATEGORY_LABELS, appDisplayName } from '@shared/apps';
 import { LockKeyhole, Share2, ShieldCheck, Sparkles } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
-import { Button, Card, EmptyState, Page, PageHeader, Progress, Tabs } from '../../ui';
+import { Button, Card, Dialog, EmptyState, Page, PageHeader, Progress, Tabs } from '../../ui';
 import { toast } from '../state';
 import s from '../insights/Insights.module.css';
 
 const CATEGORY_ORDER: AppCategory[] = ['ai_prompts', 'work_messages', 'emails', 'personal_messages', 'documents', 'other'];
 const format = (value: number): string => value.toLocaleString();
 const TYPING_PERCENTILES = [{ wpm: 85, faster: 99 }, { wpm: 70, faster: 97 }, { wpm: 55, faster: 95 }, { wpm: 40, faster: 90 }];
+const SHARE_CARDS = ['Murmur Highlights', 'Murmur Streak', 'Murmur Superlatives', 'How fast you Murmur', 'Total words dictated', 'When/Where you Murmur', 'Your Voice Profile'] as const;
+type ShareCard = typeof SHARE_CARDS[number];
 const funFact = (words: number): string => {
   const equivalents = [
     { size: 90_000, singular: 'book' }, { size: 12_000, singular: 'podcast season' }, { size: 3_000, singular: 'book chapter' },
@@ -30,7 +32,7 @@ const streakCopy = (days: number, weeks: number): string => {
   return 'Dictate today to begin your streak.';
 };
 
-async function copyStatsImage(stats: Stats): Promise<void> {
+async function copyStatsImage(stats: Stats, card: ShareCard, profile: VoiceProfile): Promise<void> {
   const canvas = document.createElement('canvas');
   canvas.width = 1200;
   canvas.height = 630;
@@ -40,16 +42,26 @@ async function copyStatsImage(stats: Stats): Promise<void> {
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.fillStyle = '#f5f1e8';
   context.font = '600 38px Figtree';
-  context.fillText('Murmur highlights', 70, 95);
-  context.font = '500 128px Figtree';
-  context.fillText(format(stats.totalWords), 70, 265);
+  context.fillText(card, 70, 95);
+  const topApp = stats.appsUsed[0]?.app ?? 'your favorite apps';
+  const content: Record<ShareCard, { primary: string; secondary: string; footer: string }> = {
+    'Murmur Highlights': { primary: format(stats.totalWords), secondary: 'words dictated', footer: `${stats.averageWpm} WPM · ${stats.dayStreak} day streak` },
+    'Murmur Streak': { primary: `${stats.dayStreak} days`, secondary: 'current daily streak', footer: `Longest streak: ${stats.longestDayStreak} days · ${stats.weekStreak} active weeks` },
+    'Murmur Superlatives': { primary: format(stats.wordsCorrected), secondary: 'words improved', footer: `${format(stats.dictionaryFixes)} dictionary fixes · ${format(stats.totalDictations)} dictations` },
+    'How fast you Murmur': { primary: `${stats.averageWpm} WPM`, secondary: 'average speaking speed', footer: `${format(stats.totalWords)} words moved forward` },
+    'Total words dictated': { primary: format(stats.totalWords), secondary: 'total words dictated', footer: `${format(stats.wordsThisMonth)} this month · ${format(stats.wordsToday)} today` },
+    'When/Where you Murmur': { primary: topApp, secondary: 'your top dictation app', footer: `${stats.appsUsed.length} apps used · ${format(stats.wordsThisWeek)} words this week` },
+    'Your Voice Profile': { primary: profile.persona ?? 'Your voice', secondary: profile.headline ?? 'A voice that sounds like you', footer: profile.catchPhrase ? `“${profile.catchPhrase}”` : 'Private and generated from local dictations' },
+  };
+  const selected = content[card];
+  context.font = selected.primary.length > 20 ? '500 72px Figtree' : '500 112px Figtree';
+  context.fillText(selected.primary, 70, 265);
   context.font = '400 30px Figtree';
   context.fillStyle = '#c9c1b4';
-  context.fillText('words dictated', 76, 310);
+  context.fillText(selected.secondary, 76, 310);
   context.fillStyle = '#f5f1e8';
-  context.font = '600 64px Figtree';
-  context.fillText(`${stats.averageWpm} WPM`, 70, 440);
-  context.fillText(`${stats.dayStreak} day streak`, 620, 440);
+  context.font = '600 42px Figtree';
+  context.fillText(selected.footer, 70, 440);
   context.font = '400 25px Figtree';
   context.fillStyle = '#c9c1b4';
   context.fillText('Private. Local. Powered by your voice.', 70, 560);
@@ -186,6 +198,7 @@ export function InsightsPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
   const [analytics, setAnalytics] = useState<MeetingAnalytics | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   useEffect(() => {
     void Promise.all([api.stats.get(), api.stats.voiceProfile(), api.stats.meetingAnalytics()]).then(([nextStats, nextProfile, nextAnalytics]) => {
       setStats(nextStats);
@@ -193,11 +206,12 @@ export function InsightsPage() {
       setAnalytics(nextAnalytics);
     });
   }, []);
-  const share = async () => {
-    if (!stats) return;
+  const share = async (card: ShareCard) => {
+    if (!stats || !profile) return;
     try {
-      await copyStatsImage(stats);
-      toast('Stats image copied', { tone: 'success' });
+      await copyStatsImage(stats, card, profile);
+      toast(`${card} image copied`, { tone: 'success' });
+      setShareOpen(false);
     } catch (error) {
       toast('Couldn’t copy image', { body: errorMessage(error), tone: 'error' });
     }
@@ -205,7 +219,7 @@ export function InsightsPage() {
   return (
     <Page wide>
       <div className={s.page}>
-        <PageHeader title="Insights" actions={<Button variant="outline" icon={<Share2 size={16} />} disabled={!stats} onClick={() => void share()}>Share</Button>} />
+        <PageHeader title="Insights" actions={<Button variant="outline" icon={<Share2 size={16} />} disabled={!stats} onClick={() => setShareOpen(true)}>Share</Button>} />
         <section className={s.snapshot}><strong>You’ve been Murmuring. Hard.</strong><span>Your voice has turned {format(stats?.totalWords ?? 0)} words into momentum.</span></section>
         <Tabs value={tab} onChange={setTab} tabs={[{ id: 'flow', label: 'Your Flow' }, { id: 'usage', label: 'Your usage' }, { id: 'voice', label: 'Your voice' }, { id: 'leaderboard', label: 'Leaderboard' }]} />
         {stats && profile && (tab === 'leaderboard'
@@ -214,6 +228,9 @@ export function InsightsPage() {
             ? <VoiceView stats={stats} profile={profile} onGenerated={setProfile} />
             : <UsageView stats={stats} analytics={analytics} />)}
       </div>
+        <Dialog open={shareOpen} onClose={() => setShareOpen(false)} title="Share insights" description="Choose a private, locally rendered card to copy as an image." width={620}>
+          <div className={s.shareCards}>{SHARE_CARDS.map((card) => <article key={card}><div><strong>{card}</strong><span>Ready to copy as a 1200 × 630 image</span></div><Button size="sm" variant="outline" onClick={() => void share(card)}>Copy image</Button></article>)}</div>
+        </Dialog>
     </Page>
   );
 }

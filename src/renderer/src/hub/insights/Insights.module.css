@@ -45,3 +45,7 @@
 .personaTags { display: flex; flex-wrap: wrap; gap: 6px; }
 .personaTags span { padding: 4px 7px; border: 1px solid var(--border); border-radius: 999px; color: var(--foreground-secondary); font-size: 11px; }
 @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .wide { grid-column: auto; } .voiceFacts { grid-template-columns: 1fr; } .category { grid-template-columns: 120px 1fr 42px; } }
+.shareCards { display:grid; gap:8px; }
+.shareCards article { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px; border:1px solid var(--border); border-radius:10px; }
+.shareCards article div { display:grid; gap:3px; }
+.shareCards article span { color:var(--foreground-tertiary); font-size:12px; }

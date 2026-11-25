@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { Check, Globe2, Plus, X } from 'lucide-react';
-import type { CleanupLevel, StyleContext, StyleTone } from '@shared/types';
+import type { CleanupLevel, CustomVoiceStyle, StyleContext, StyleTone } from '@shared/types';
 import { applyTone, capitalize, ensureTerminalPunctuation } from '@shared/textPipeline';
 import { usePatchSettings, useSettings } from '../../lib/settings';
-import { Badge, Banner, Button, Dialog, Input, Page, PageHeader, Tabs, TextArea, Toggle } from '../../ui';
+import { Badge, Banner, Button, Dialog, Field, Input, Page, PageHeader, Select, Tabs, TextArea, Toggle } from '../../ui';
 import styles from './style.module.css';
 
-type Tab = StyleContext | 'cleanup';
+type Tab = StyleContext | 'cleanup' | 'voice';
 const CONTEXTS: { id: StyleContext; label: string; sample: string }[] = [
   { id: 'personal', label: 'Personal messages', sample: 'Had such a good time tonight. See you soon' },
   { id: 'work', label: 'Work messages', sample: 'Hey team, the launch is looking good. I will share the final update tomorrow' },
@@ -28,12 +28,12 @@ export function StyleExperience() {
   const settings = useSettings();
   const [tab, setTab] = useState<Tab>('personal');
   const [wizard, setWizard] = useState(false);
-  const tabs = [...CONTEXTS.map((c) => ({ id: c.id as Tab, label: c.label })), { id: 'cleanup' as Tab, label: 'Auto cleanup', badge: <Badge tone="accent">Beta</Badge> }];
+  const tabs = [{ id: 'voice' as Tab, label: 'My Voice' }, ...CONTEXTS.map((c) => ({ id: c.id as Tab, label: c.label })), { id: 'cleanup' as Tab, label: 'Auto cleanup', badge: <Badge tone="accent">Beta</Badge> }];
   return <Page wide>
     <PageHeader title="Style" />
     <Tabs className={styles.tabs} value={tab} onChange={setTab} tabs={tabs} />
     {!settings.personalizationComplete && <div className={styles.hero}><Banner variant="violet" art={<div className={styles.heroArt} />} title={<>Make Murmur sound like <em>you</em></>} body="Set up different writing styles for different apps." actions={<Button variant="light" onClick={() => setWizard(true)}>Start now</Button>} /></div>}
-    {tab === 'cleanup' ? <CleanupPanel /> : <ContextPanel context={tab} />}
+    {tab === 'cleanup' ? <CleanupPanel /> : tab === 'voice' ? <VoicePanel onChooseBuiltIn={setTab} /> : <ContextPanel context={tab} />}
     <PersonalizationWizard open={wizard} onClose={() => setWizard(false)} />
   </Page>;
 }
@@ -75,6 +75,65 @@ function ContextPanel({ context }: { context: StyleContext }) {
       />
     </div>
     <div className={styles.disclaimer}><Globe2 size={16} /> Style formatting currently applies only in English. More languages are coming.</div>
+  </section>;
+}
+
+function VoicePanel({ onChooseBuiltIn }: { onChooseBuiltIn: (context: StyleContext) => void }) {
+  const settings = useSettings();
+  const patch = usePatchSettings();
+  const [editor, setEditor] = useState<CustomVoiceStyle | 'new' | null>(null);
+  const existing = editor && editor !== 'new' ? editor : null;
+  const [name, setName] = useState('');
+  const [tone, setTone] = useState<StyleTone>('formal');
+  const [cleanupLevel, setCleanupLevel] = useState<CleanupLevel>('light');
+  const [instructions, setInstructions] = useState('');
+  const [apps, setApps] = useState('');
+  const openEditor = (value: CustomVoiceStyle | 'new') => {
+    const current = value === 'new' ? null : value;
+    setName(current?.name ?? '');
+    setTone(current?.tone ?? 'formal');
+    setCleanupLevel(current?.cleanupLevel ?? 'light');
+    setInstructions(current?.instructions ?? '');
+    setApps(current?.apps.join(', ') ?? '');
+    setEditor(value);
+  };
+  const save = async () => {
+    if (!name.trim()) return;
+    const timestamp = new Date().toISOString();
+    const value: CustomVoiceStyle = {
+      id: existing?.id ?? crypto.randomUUID(),
+      name: name.trim(),
+      tone,
+      cleanupLevel,
+      instructions: instructions.trim(),
+      apps: [...new Set(apps.split(',').map((app) => app.trim().toLowerCase()).filter(Boolean))],
+      createdAt: existing?.createdAt ?? timestamp,
+      modifiedAt: timestamp,
+    };
+    await patch({ customStyles: existing ? settings.customStyles.map((style) => style.id === existing.id ? value : style) : [...settings.customStyles, value] });
+    setEditor(null);
+  };
+  const remove = async () => {
+    if (!existing) return;
+    await patch({ customStyles: settings.customStyles.filter((style) => style.id !== existing.id) });
+    setEditor(null);
+  };
+  return <section>
+    <div className={styles.voiceHeader}><div><h2 className={styles.sectionHead}>How you sound in different contexts</h2><p className={styles.subtle}>Built-in voices cover your everyday apps. Create named voices for specific audiences or projects.</p></div><Button icon={<Plus size={16} />} onClick={() => openEditor('new')}>Create style</Button></div>
+    <div className={styles.voiceGrid}>
+      {CONTEXTS.map((context) => <button type="button" className={styles.voiceCard} key={context.id} onClick={() => onChooseBuiltIn(context.id)}><Badge>Built-in</Badge><h3>{context.label}</h3><p>{settings.styles[context.id].tone.replaceAll('_', ' ')} · {settings.cleanupLevel} cleanup</p><span>{settings.styles[context.id].apps.length ? settings.styles[context.id].apps.join(', ') : 'All other apps'}</span></button>)}
+      {settings.customStyles.map((style) => <button type="button" className={styles.voiceCard} key={style.id} onClick={() => openEditor(style)}><Badge tone="accent">Custom</Badge><h3>{style.name}</h3><p>{style.tone.replaceAll('_', ' ')} · {style.cleanupLevel} cleanup</p><span>{style.apps.length ? style.apps.join(', ') : 'No automatic app mapping'}</span></button>)}
+    </div>
+    {!settings.customStyles.length && <div className={styles.voiceEmpty}>No custom voices yet. Create one to keep a named style for a client, project, or audience.</div>}
+    <Dialog open={!!editor} onClose={() => setEditor(null)} title={existing ? `Edit ${existing.name}` : 'Create style'} footer={<><Button variant="secondary" onClick={() => setEditor(null)}>Cancel</Button>{existing && <Button variant="danger" onClick={() => void remove()}>Delete</Button>}<Button onClick={() => void save()}>Save style</Button></>}>
+      <div className={styles.styleEditor}>
+        <Field label="Style name"><Input autoFocus aria-label="Style name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Customer updates" /></Field>
+        <Field label="Preferred style"><Select ariaLabel="Preferred style" value={tone} onChange={setTone} options={[...TONES, { id: 'gen_z' as const, label: 'Gen Z', caption: '' }].map((item) => ({ value: item.id, label: item.label }))} /></Field>
+        <Field label="Edit level"><Select ariaLabel="Edit level" value={cleanupLevel} onChange={setCleanupLevel} options={CLEANUPS.map((item) => ({ value: item.id, label: item.title }))} /></Field>
+        <Field label="Automatically apply in these apps or websites" hint="Separate process names or website keywords with commas."><Input aria-label="Style apps" value={apps} onChange={(event) => setApps(event.target.value)} placeholder="acme, outlook" /></Field>
+        <Field label="Instructions"><TextArea aria-label="Style instructions" rows={5} value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Keep updates concise and end with a clear next step." /></Field>
+      </div>
+    </Dialog>
   </section>;
 }
 

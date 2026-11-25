@@ -23,6 +23,8 @@ test('hub gap features work with local data', async () => {
       'Window: Notepad\nControl: Edit')`).run(now);
     db.close();
     await hub.reload();
+    const welcomeBack = hub.getByRole('dialog', { name: 'Welcome back' });
+    if (await welcomeBack.isVisible()) await welcomeBack.getByRole('button', { name: 'Not now' }).click();
 
     const row = hub.locator('article').filter({ hasText: 'Polished launch update.' });
     await row.getByLabel('More actions').click();

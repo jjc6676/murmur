@@ -53,8 +53,8 @@ function seedBuiltIns(): void {
 function validateCommand(command: string, id?: string): void {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(command)) throw new Error('Use lowercase letters, numbers, and single hyphens only');
   if (RESERVED.has(command)) throw new Error('That slash command is reserved');
-  const existing = getCtx().db.get<{ id: string }>('SELECT id FROM skills WHERE command = ?', command);
-  if (existing && existing.id !== id) throw new Error('That slash command is already in use');
+  const existing = getCtx().db.get<{ id: string; builtIn: number }>('SELECT id, builtIn FROM skills WHERE command = ? AND id != ? ORDER BY builtIn ASC LIMIT 1', command, id ?? '');
+  if (existing && !existing.builtIn) throw new Error('That slash command is already used by a personal skill');
 }
 function parseTranscript(value: string): TranscriptSegment[] {
   try {

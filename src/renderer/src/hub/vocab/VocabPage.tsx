@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowDownAZ, Pencil, RefreshCw, Sparkles, Star, Trash2 } from 'lucide-react';
 import type { DictionaryEntry, DictionarySort } from '@shared/types';
 import { api, errorMessage, useEvent } from '../../lib/api';
@@ -14,6 +14,7 @@ const SORTS: { value: DictionarySort; label: string }[] = [
   { value: 'newest', label: 'Newest first' }, { value: 'oldest', label: 'Oldest first' },
   { value: 'alpha', label: 'Alphabetical A–Z' }, { value: 'starred', label: 'Starred first' },
 ];
+
 
 export function VocabPage({ snippets }: { snippets: boolean }) {
   const settings = useSettings();
@@ -102,14 +103,29 @@ function EntryDialog({ snippets, value, onClose, onSaved }: { snippets: boolean;
   const preset = value && value !== 'new' && 'preset' in value ? value.preset : '';
   const [phrase, setPhrase] = useState('');
   const [replacement, setReplacement] = useState('');
+  const [replacementHtml, setReplacementHtml] = useState('');
+  const [rich, setRich] = useState(false);
+  const richEditor = useRef<HTMLDivElement>(null);
   const [correction, setCorrection] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  useEffect(() => { if (value) { setPhrase(existing?.phrase ?? preset); setReplacement(existing?.replacement ?? ''); setCorrection(!!existing?.replacement && !snippets); setError(null); } }, [existing, preset, snippets, value]);
+  useEffect(() => {
+    if (!value) return;
+    setPhrase(existing?.phrase ?? preset);
+    setReplacement(existing?.replacement ?? '');
+    setReplacementHtml(existing?.replacementHtml ?? '');
+    setRich(!!existing?.replacementHtml);
+    setCorrection(!!existing?.replacement && !snippets);
+    setError(null);
+  }, [existing, preset, snippets, value]);
+  useEffect(() => {
+    if (rich && richEditor.current && richEditor.current.innerHTML !== replacementHtml) richEditor.current.innerHTML = replacementHtml;
+  }, [replacementHtml, rich]);
   async function save() {
     setError(null); setSaving(true);
     try {
-      const result = existing ? await api.dictionary.update(existing.id, { phrase, replacement: snippets || correction ? replacement : null }) : await api.dictionary.add({ phrase, replacement: snippets || correction ? replacement : null, isSnippet: snippets });
+      const payload = { phrase, replacement: snippets || correction ? replacement : null, replacementHtml: snippets && rich ? replacementHtml : null };
+      const result = existing ? await api.dictionary.update(existing.id, payload) : await api.dictionary.add({ ...payload, isSnippet: snippets });
       if (result.warning) toast('Snippet saved', { body: result.warning, tone: 'warning' });
       onSaved(); onClose();
     } catch (cause) { setError(errorMessage(cause)); } finally { setSaving(false); }
@@ -118,7 +134,28 @@ function EntryDialog({ snippets, value, onClose, onSaved }: { snippets: boolean;
     <div className={styles.dialogFields}>
       <Field label={snippets ? 'Snippet' : correction ? 'Misspelling' : 'Word'} error={error}><Input autoFocus aria-label={snippets ? 'Snippet' : correction ? 'Misspelling' : 'Word'} value={phrase} onChange={(e) => setPhrase(e.target.value)} /></Field>
       {!snippets && <div className={styles.toggleRow}><div><strong>Correct a misspelling</strong><div className="m-field__hint">Automatically replace it during dictation.</div></div><Toggle label="Correct a misspelling" checked={correction} onChange={setCorrection} /></div>}
-      {(snippets || correction) && <Field label={snippets ? 'Expansion' : 'Replacement'}><TextArea aria-label={snippets ? 'Expansion' : 'Replacement'} rows={snippets ? 7 : 3} maxLength={4000} value={replacement} onChange={(e) => setReplacement(e.target.value)} /><div className={styles.counter}>{replacement.length} / 4000</div></Field>}
+      {(snippets || correction) && <Field label={snippets ? 'Expansion' : 'Replacement'}>
+        {snippets && <div className={styles.richToggle}><div><strong>Rich text</strong><span>Keep formatting when Murmur pastes this snippet.</span></div><Toggle label="Enable rich formatting" checked={rich} onChange={(checked) => { if (checked && !replacementHtml) setReplacementHtml(`<p>${replacement.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('\n', '<br>')}</p>`); setRich(checked); }} /></div>}
+        {snippets && rich ? <div className={styles.richBox}>
+          <div className={styles.richToolbar} role="toolbar" aria-label="Rich text formatting">
+            {[['Bold', 'bold'], ['Italic', 'italic'], ['Underline', 'underline'], ['Bulleted list', 'insertUnorderedList'], ['Numbered list', 'insertOrderedList']].map(([label, command]) => <button type="button" key={command} onMouseDown={(event) => { event.preventDefault(); document.execCommand(command); richEditor.current?.focus(); }}>{label}</button>)}
+          </div>
+          <div
+            ref={richEditor}
+            className={styles.richEditor}
+            contentEditable
+            role="textbox"
+            aria-label="Rich text expansion"
+            aria-multiline="true"
+            onInput={(event) => {
+              const editor = event.currentTarget;
+              setReplacementHtml(editor.innerHTML);
+              setReplacement(editor.innerText.slice(0, 4000));
+            }}
+          />
+        </div> : <TextArea aria-label={snippets ? 'Expansion' : 'Replacement'} rows={snippets ? 7 : 3} maxLength={4000} value={replacement} onChange={(e) => setReplacement(e.target.value)} />}
+        <div className={styles.counter}>{replacement.length} / 4000</div>
+      </Field>}
     </div>
   </Dialog>;
 }

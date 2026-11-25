@@ -1,5 +1,5 @@
 // User settings: single JSON document persisted by main; renderers read/patch via the settings API.
-import type { CleanupLevel, LlmProvider, StyleContext, StyleTone, Theme, TransformDef } from './types';
+import type { CleanupLevel, CustomVoiceStyle, LlmProvider, StyleContext, StyleTone, Theme, TransformDef } from './types';
 
 export type ShortcutAction =
   | 'ptt'
@@ -79,6 +79,7 @@ export interface Settings {
   cleanupLevel: CleanupLevel;
   smartFormatting: { lists: boolean; backtrack: boolean; emails: boolean; spokenPunctuation: boolean };
   styles: Record<StyleContext, { tone: StyleTone; apps: string[]; instructions?: string; cleanupLevel: CleanupLevel }>;
+  customStyles: CustomVoiceStyle[];
   personalizationComplete: boolean;
   transformsEnabled: boolean;
   transformAutoPaste: boolean;
@@ -276,6 +277,7 @@ export const DEFAULT_SETTINGS: Settings = {
     personal: { tone: 'formal', apps: DEFAULT_STYLE_APPS.personal, instructions: '', cleanupLevel: 'light' },
     other: { tone: 'formal', apps: [], instructions: '', cleanupLevel: 'light' },
   },
+  customStyles: [],
   personalizationComplete: false,
   transformsEnabled: true,
   transformAutoPaste: true,

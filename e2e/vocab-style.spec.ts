@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import type { DictionaryEntry } from '../src/shared/types';
 import type { Settings } from '../src/shared/settings';
 import { invoke, launchApp } from './helpers';
 
@@ -52,6 +53,14 @@ test('dictionary and snippets support their complete editing flows', async () =>
     await hub.getByLabel('Expansion').fill('Hi, I am Jason. Great to meet you!');
     await hub.getByRole('button', { name: 'Add snippet' }).click();
     await expect(hub.getByText(/my intro → Hi, I am Jason/)).toBeVisible();
+    await hub.locator('.m-page-header').getByRole('button', { name: 'Add new', exact: true }).click();
+    await hub.getByRole('textbox', { name: 'Snippet', exact: true }).fill('formatted intro');
+    await hub.getByRole('switch', { name: 'Enable rich formatting' }).click();
+    await hub.getByRole('textbox', { name: 'Rich text expansion' }).fill('Hello formatted world');
+    await hub.getByRole('button', { name: 'Bold' }).click();
+    await hub.getByRole('button', { name: 'Add snippet' }).click();
+    const snippets = await invoke<DictionaryEntry[]>(hub, 'dictionary:list', { snippets: true });
+    expect(snippets.find((entry) => entry.phrase === 'formatted intro')?.replacementHtml).toContain('Hello formatted world');
     await hub.screenshot({ path: 'docs/parity/murmur-snippets.png' });
   } finally { await app.close(); }
 });
@@ -76,6 +85,14 @@ test('style personalization and automatic cleanup persist', async () => {
     await hub.getByRole('radio', { name: /Medium/ }).check();
     settings = await invoke<Settings>(hub, 'settings:get');
     expect(settings.cleanupLevel).toBe('medium');
+    await hub.getByRole('tab', { name: 'My Voice' }).click();
+    await hub.getByRole('button', { name: 'Create style' }).click();
+    await hub.getByLabel('Style name').fill('Customer updates');
+    await hub.getByLabel('Style instructions').fill('Keep updates concise and end with a next step.');
+    await hub.getByRole('button', { name: 'Save style' }).click();
+    await expect(hub.getByRole('button', { name: /Customer updates/ })).toBeVisible();
+    settings = await invoke<Settings>(hub, 'settings:get');
+    expect(settings.customStyles[0]?.name).toBe('Customer updates');
     await hub.screenshot({ path: 'docs/parity/murmur-style.png' });
   } finally { await app.close(); }
 });
