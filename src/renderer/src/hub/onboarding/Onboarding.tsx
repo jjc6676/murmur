@@ -7,6 +7,7 @@ import { api, useEvent } from '../../lib/api';
 import { usePatchSettings, useSettings } from '../../lib/settings';
 import { Button, Checkbox, Dialog, Input, Kbd, Segmented, TextArea } from '../../ui';
 import { Logo } from '../shell/Logo';
+import { toast } from '../state';
 import styles from './Onboarding.module.css';
 
 type Stage = 'signup' | 'permissions' | 'setup' | 'learn' | 'personalize';
@@ -220,7 +221,11 @@ function LearnStep({ next }: { next: () => void }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const practice = PRACTICES.find((item) => item.id === tab) ?? PRACTICES[0];
   const Icon = practice.icon;
-  useEvent('dictation:state', (state) => { if (state.phase === 'active_ptt' || state.phase === 'active_popo') ref.current?.focus(); });
+  useEvent('dictation:state', (state) => {
+    if (state.phase !== 'active_ptt' && state.phase !== 'active_popo') return;
+    if (document.activeElement !== ref.current) toast('Click on the textbox first!', { tone: 'warning' });
+    ref.current?.focus();
+  });
   const saved = Math.round(minutes * 5 * .7 / 60 * 10) / 10;
   const runPractice = async () => {
     if (tab === 'slack' || !drafts[tab].trim()) return;
@@ -251,6 +256,8 @@ const CONTEXTS: { id: StyleContext; label: string; sample: string }[] = [
   { id: 'other', label: 'Other', sample: 'here are the main ideas from todays planning session' },
 ];
 const TONES: { id: StyleTone; label: string }[] = [{ id: 'formal', label: 'Formal' }, { id: 'casual', label: 'Casual' }, { id: 'excited', label: 'Excited' }];
+// Personal messages offer "Very casual" (no initial capitals, less punctuation) instead of "Excited".
+const PERSONAL_TONES: { id: StyleTone; label: string }[] = [{ id: 'formal', label: 'Formal' }, { id: 'casual', label: 'Casual' }, { id: 'very_casual', label: 'Very casual' }];
 
 function PersonalizeStep() {
   const s = useSettings();
@@ -263,7 +270,7 @@ function PersonalizeStep() {
     setContext(CONTEXTS[(index + 1) % CONTEXTS.length].id);
   };
   return <StepLayout preview={<div className={styles.tonePreview}><span>{selected.label}</span><p>{applyTone(ensureTerminalPunctuation(capitalize(selected.sample)), s.styles[context].tone)}</p></div>}>
-    <Eyebrow>PERSONALIZE</Eyebrow><h1>Make every message sound like you</h1><p>Choose a tone for each context. Murmur applies capitalization, punctuation, and formatting automatically.</p><div className={styles.contextTabs}>{CONTEXTS.map((item) => <button className={context === item.id ? styles.selected : ''} key={item.id} onClick={() => setContext(item.id)}>{item.label}</button>)}</div><div className={styles.toneChoices}>{TONES.map((tone) => <button className={s.styles[context].tone === tone.id ? styles.selected : ''} key={tone.id} onClick={() => void patch({ styles: { [context]: { ...s.styles[context], tone: tone.id } } })}><strong>{tone.label}</strong><p>{applyTone(ensureTerminalPunctuation(capitalize(selected.sample)), tone.id)}</p></button>)}</div><Footer><Button variant="ghost" onClick={skipCategory}>Skip {selected.label}</Button><Button variant="ghost" onClick={() => void finish(false)}>Set up later</Button><Button onClick={() => void finish(true)}>Finish setup</Button></Footer>
+    <Eyebrow>PERSONALIZE</Eyebrow><h1>Make every message sound like you</h1><p>Choose a tone for each context. Murmur applies capitalization, punctuation, and formatting automatically.</p><div className={styles.contextTabs}>{CONTEXTS.map((item) => <button className={context === item.id ? styles.selected : ''} key={item.id} onClick={() => setContext(item.id)}>{item.label}</button>)}</div><div className={styles.toneChoices}>{(context === 'personal' ? PERSONAL_TONES : TONES).map((tone) => <button className={s.styles[context].tone === tone.id ? styles.selected : ''} key={tone.id} onClick={() => void patch({ styles: { [context]: { ...s.styles[context], tone: tone.id } } })}><strong>{tone.label}</strong><p>{applyTone(ensureTerminalPunctuation(capitalize(selected.sample)), tone.id)}</p></button>)}</div><Footer><Button variant="ghost" onClick={skipCategory}>Skip {selected.label}</Button><Button variant="ghost" onClick={() => void finish(false)}>Set up later</Button><Button onClick={() => void finish(true)}>Finish setup</Button></Footer>
   </StepLayout>;
 }
 

@@ -1,10 +1,14 @@
 """Validate docs/flow-inventory.md: status vocabulary, citations that resolve, and summary counts.
 
-Usage: python scripts/check-inventory.py [--write-summary]
+Usage: python scripts/check-inventory.py [--write-summary] [--rebase <git-rev>]
 Exit code 1 when a row has an unknown status, an Implemented row lacks a citation,
 or a citation points at a missing file / out-of-range line.
+
+--rebase <rev> rewrites every `path:start-end` citation from the line numbers of <rev> to the
+current working tree using `git diff -U0`, so citations survive later code edits.
 """
 import re
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -21,8 +25,49 @@ def cells(line: str) -> list[str]:
     return [c.strip() for c in re.split(r'(?<!\\)\|', line)[1:-1]]
 
 
+def line_map(rev: str, path: str):
+    """Return a function mapping a line number in <rev>:path to the working-tree line number."""
+    diff = subprocess.run(['git', 'diff', '-U0', rev, '--', path], cwd=ROOT, capture_output=True, text=True, encoding='utf8').stdout
+    # A missing hunk count means 1; an explicit 0 (pure insertion/deletion) must stay 0.
+    parsed = []
+    for m in re.finditer(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@', diff, re.M):
+        a, b, c, d = m.groups()
+        parsed.append((int(a), 1 if b is None else int(b), int(c), 1 if d is None else int(d)))
+
+    def remap(line: int, is_end: bool = False) -> int:
+        offset = 0
+        for old_start, old_len, new_start, new_len in parsed:
+            old_end = old_start + old_len - 1 if old_len else old_start
+            if old_len and old_start <= line <= old_end:
+                # line itself changed: point at the replacement hunk
+                return max(new_start, new_start + new_len - 1) if is_end else new_start
+            if (old_len and old_end < line) or (not old_len and old_start < line):
+                offset += new_len - old_len
+        return line + offset
+
+    return remap
+
+
+def rebase(lines: list[str], rev: str) -> list[str]:
+    maps: dict[str, object] = {}
+
+    def fix(m: re.Match) -> str:
+        path, start, end = m.group(1), int(m.group(2)), m.group(3)
+        remap = maps.setdefault(path, line_map(rev, path))
+        new_start = remap(start)
+        if end is None:
+            return f'`{path}:{new_start}`'
+        new_end = max(new_start, remap(int(end), is_end=True))
+        return f'`{path}:{new_start}-{new_end}`'
+
+    return [CITE.sub(fix, line) if line.startswith('| **') else line for line in lines]
+
+
 def main() -> int:
     lines = DOC.read_text(encoding='utf8').splitlines()
+    if '--rebase' in sys.argv:
+        lines = rebase(lines, sys.argv[sys.argv.index('--rebase') + 1])
+        DOC.write_text('\n'.join(lines) + '\n', encoding='utf8')
     section = None
     counts: Counter[str] = Counter()
     problems: list[str] = []

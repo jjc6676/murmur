@@ -73,7 +73,7 @@ test('home, history, insights, notifications, skills, and memory work end to end
     await notifications.getByRole('button', { name: 'Close' }).click();
 
     await hub.evaluate("location.hash = '#/skills'");
-    await expect(hub.getByRole('heading', { name: 'Skills' })).toBeVisible();
+    await expect(hub.getByRole('heading', { name: 'Skills', exact: true })).toBeVisible();
     await hub.getByRole('button', { name: 'Create Skill' }).click();
     await hub.getByLabel('Name').fill('Launch recap');
     await hub.getByLabel('One-line description').fill('Create a launch recap.');
