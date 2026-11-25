@@ -40,10 +40,10 @@ if (!app.requestSingleInstanceLock()) {
     void startAsr();
     ensureCapture();
     const s = ctx.settings.get();
-    if (s.showFlowBar && s.onboardingComplete) ensureStatus();
+    if (s.showFlowBar && (s.onboardingComplete || s.onboardingDeferred)) ensureStatus();
     ctx.settings.onChange((n) => {
       // snooze ("Hide for 1 hour") is handled inside the bar so toasts can still show
-      const visible = n.showFlowBar && n.onboardingComplete;
+      const visible = n.showFlowBar && (n.onboardingComplete || n.onboardingDeferred);
       if (visible) ensureStatus();
       else getWindow('status')?.close();
     });

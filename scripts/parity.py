@@ -32,7 +32,6 @@ PAIRS = {
     'settings-mcp': ('settings-mcp.png', 'murmur-settings-mcp.png'),
     'settings-account': ('settings-account.png', 'murmur-settings-account.png'),
     'settings-team': ('settings-team.png', 'murmur-settings-team.png'),
-    'settings-plans': ('settings-plans-and-billing.png', 'murmur-settings-plans.png'),
     'settings-data': ('settings-data-and-privacy.png', 'murmur-settings-data.png'),
 }
 

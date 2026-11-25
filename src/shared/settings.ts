@@ -26,6 +26,7 @@ export interface Settings {
   // onboarding & profile
   onboardingComplete: boolean;
   onboardingStep: string;
+  onboardingDeferred: boolean;
   postOnboardingCompleted: boolean;
   onboardingPagesCompleted: { page: string; completed: boolean }[];
   onboardingPermissions: { name: 'accessibility' | 'microphone' | 'screen_capture' | 'system_audio'; clicked: boolean; granted: boolean }[];
@@ -207,6 +208,7 @@ export const DEFAULT_SETTINGS: Settings = {
   version: 1,
   onboardingComplete: false,
   onboardingStep: 'welcome',
+  onboardingDeferred: false,
   postOnboardingCompleted: false,
   onboardingPagesCompleted: [],
   onboardingPermissions: [],

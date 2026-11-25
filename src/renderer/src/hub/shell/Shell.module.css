@@ -27,19 +27,6 @@
   border-radius: 50%;
   object-fit: cover;
 }
-.upgrade {
-  height: 32px;
-  padding: 0 12px;
-  border-radius: var(--radius);
-  background: var(--accent-soft);
-  color: var(--accent-text);
-  font-size: 14px;
-  font-weight: 550;
-  margin-right: 6px;
-}
-.upgrade:hover {
-  filter: brightness(0.97);
-}
 .bellWrap {
   position: relative;
   display: inline-flex;
@@ -104,6 +91,21 @@
   margin-bottom: 20px;
   color: var(--foreground);
 }
+.finishSetup {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--foreground);
+  background: var(--background-secondary);
+  text-align: left;
+}
+.finishSetup:hover { background: var(--muted-hover); }
+.finishSetup span { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 650; }
+.finishSetup small { color: var(--foreground-secondary); font-size: 11px; }
 .nav {
   display: flex;
   flex-direction: column;

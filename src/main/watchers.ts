@@ -7,6 +7,7 @@ import { broadcast } from './ipc';
 import { getForegroundApp, minimizeWindow } from './native/win32';
 import { showNudge, showToast } from './toasts';
 import { isDictating, refreshAppBlockedState } from './features/dictation';
+import { ensureHub } from './windows';
 
 const BROWSERS = /^(chrome|msedge|firefox|brave|opera|arc|vivaldi|zen)$/;
 const TYPING_WINDOW_MS = 60_000;
@@ -95,9 +96,14 @@ export function startWatchers(): void {
     if (!current.onboardingComplete) {
       showNudge(
         'OnboardingContinueNudge',
-        { title: 'Just a few more steps!', body: 'Return to the app and finish setup to unlock the full power of Murmur.', target: 'bar', actions: [{ id: 'finish', label: 'Finish onboarding' }] },
+        { title: 'Just a few more steps!', body: 'Return to Murmur when you are ready to finish setup.', target: 'bar', actions: [{ id: 'finish', label: 'Finish setup' }] },
         { max: 1 },
-        (action) => action === 'finish' && broadcast('hub:navigate', { route: '/' }),
+        (action) => {
+          if (action !== 'finish') return;
+          settings.patch({ onboardingDeferred: false });
+          ensureHub(true);
+          broadcast('hub:navigate', { route: '/' });
+        },
       );
       return;
     }

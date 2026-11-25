@@ -14,7 +14,6 @@ export type SettingsSection =
   | 'mcp'
   | 'account'
   | 'team'
-  | 'plans'
   | 'data';
 
 export interface LocalToast {

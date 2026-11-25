@@ -4,12 +4,10 @@ import {
   Check,
   ChevronLeft,
   Code2,
-  CreditCard,
   FlaskConical,
   Link2,
   Mic,
   Puzzle,
-  RefreshCw,
   Settings2,
   Shield,
   SlidersHorizontal,
@@ -59,7 +57,6 @@ const SETTINGS_NAV: { id: SettingsSection; label: string; icon: typeof Settings2
 const ACCOUNT_NAV: { id: SettingsSection; label: string; icon: typeof Settings2 }[] = [
   { id: 'account', label: 'Account', icon: User },
   { id: 'team', label: 'Team', icon: Users },
-  { id: 'plans', label: 'Plans and Billing', icon: CreditCard },
   { id: 'data', label: 'Data and Privacy', icon: Shield },
 ];
 
@@ -371,7 +368,7 @@ function SystemSection({ s, patch }: SectionProps) {
     </SettingGroup>
     <SettingGroup title="Data">
       <SettingRow title="Reset app" description="Reset only if advised by support."><Button variant="danger" size="sm" onClick={() => setReset(true)}>Reset &amp; restart</Button></SettingRow>
-      <SettingRow title="Restart tutorial" description="Keep your history and settings"><Button variant="outline" size="sm" onClick={() => void patch({ onboardingComplete: false, onboardingStep: 'welcome' })}>Restart tutorial</Button></SettingRow>
+      <SettingRow title="Restart tutorial" description="Keep your history and settings"><Button variant="outline" size="sm" onClick={() => void patch({ onboardingComplete: false, onboardingDeferred: false, onboardingStep: 'welcome' })}>Restart tutorial</Button></SettingRow>
     </SettingGroup>
     <Dialog open={scratch} onClose={() => setScratch(false)} title="Scratchpad open behavior" footer={<Button onClick={() => setScratch(false)}>Done</Button>}>
       <Segmented value={s.scratchpadOpenBehavior} options={[{ value: 'resume', label: 'Resume last note' }, { value: 'new_tab', label: 'Open in new tab' }, { value: 'last_pinned', label: 'Open last active pinned note' }]} onChange={(scratchpadOpenBehavior) => void patch({ scratchpadOpenBehavior })} />
@@ -385,7 +382,7 @@ function NotetakerSection({ s, patch }: SectionProps) {
   const p = (value: Partial<typeof n>) => void patch({ notetaker: { ...n, ...value } });
   const [editConsent, setEditConsent] = useState(false);
   return <>
-    <div className={styles.headingLine}><SectionTitle>Notetaker</SectionTitle><Button variant="outline" onClick={() => void patch({ onboardingComplete: false, onboardingStep: 'permissions' })}>Start tutorial</Button></div>
+    <div className={styles.headingLine}><SectionTitle>Notetaker</SectionTitle><Button variant="outline" onClick={() => void patch({ onboardingComplete: false, onboardingDeferred: false, onboardingStep: 'permissions' })}>Start tutorial</Button></div>
     <SettingGroup title="Meeting detection">
       <SettingRow title="Automatically detect any call" description="Recognize supported meeting apps and calls"><Toggle label="Detect calls" checked={n.autoDetectCalls} onChange={(autoDetectCalls) => p({ autoDetectCalls })} /></SettingRow>
       <SettingRow title="When a call is detected"><Select value={n.detectionAction} options={[{ value: 'notify', label: 'Notify me' }, { value: 'do_nothing', label: 'Do nothing' }]} onChange={(detectionAction) => p({ detectionAction })}/></SettingRow>
@@ -520,6 +517,7 @@ function ConnectorsSection({ s, patch }: SectionProps) {
 function DeveloperSection({ s, patch }: SectionProps) {
   const restartOnboarding = () => void patch({
     onboardingComplete: false,
+    onboardingDeferred: false,
     onboardingStep: 'signup',
     onboardingPagesCompleted: [],
     ...(!s.internal.preserveIntentsOnRestart ? { profile: { ...s.profile, intents: [] } } : {}),
@@ -577,7 +575,7 @@ function TeamSection() {
       <div className={styles.teamArt}><Users size={50}/><i/><i/><i/></div>
       <div className={styles.teamForm}>
         <h2>Invite your team to join you on Murmur</h2>
-        <p>Create a team to get a <strong>2-week pro trial</strong> and unlock team features!</p>
+        <p>Create a private team workspace and invite the people you collaborate with.</p>
         <div className={styles.emailList}>{emails.map((email, index) => <Input key={index} type="email" aria-label={`Teammate email ${index + 1}`} placeholder="teammate@company.com" value={email} onChange={(event) => setEmails((current) => current.map((item, i) => i === index ? event.target.value : item))}/>)}</div>
         <button className={styles.textLink} onClick={() => setEmails((current) => [...current, ''])}>+ Add more</button>
         <Button onClick={offline}>Continue</Button>
@@ -587,24 +585,6 @@ function TeamSection() {
   </>;
 }
 
-function PlansSection() {
-  const [cycle, setCycle] = useState<'monthly' | 'annual'>('annual');
-  const offline = () => toast('Plans and billing require a cloud account — not available offline');
-  return <><div className={styles.headingLine}><SectionTitle>Plans and Billing</SectionTitle><button className={styles.refresh} aria-label="Refresh plans" onClick={offline}><RefreshCw size={17}/></button></div><OfflineNotice/>
-    <div className={styles.billingToggle}><Segmented value={cycle} options={[{ value: 'monthly', label: 'Monthly' }, { value: 'annual', label: 'Annual' }]} onChange={setCycle}/></div>
-    <div className={styles.planGrid}>
-      <PlanCard kicker="For individuals" name="Free" price="$0/mo" action={<Button disabled variant="outline">Current plan</Button>} features={['Speech-to-text in any app, 100+ languages', 'Dictation on Mac, Windows, iOS, and Android', 'Learns your names and jargon', 'Dictionary and snippets', 'Limited Notetaker history', 'Use your meeting notes in Claude and ChatGPT']}/>
-      <PlanCard kicker="For individuals & teams" name="Pro" badge="Popular" price={cycle === 'annual' ? '$12 per user/mo' : '$15 per user/mo'} discount={cycle === 'annual' ? '-20%' : undefined} action={<Button onClick={offline}>Upgrade</Button>} intro="Everything in Free, plus:" features={['Unlimited dictations', 'Unlimited notetaker access', 'Shared dictionary and snippets', 'Shared team workspace', 'Centralized billing and user management', 'Team usage analytics', 'Priority support', 'Early access to new features']}/>
-      <PlanCard kicker="For teams with advanced needs" name="Growth & Enterprise" price={cycle === 'annual' ? 'from $18 per user/mo' : 'from $23 per user/mo'} discount={cycle === 'annual' ? '-21%' : undefined} action={<Button onClick={offline}>Upgrade</Button>} features={['SSO, SCIM, and domain capture', 'Audit logs and managed deployment (MDM)', 'Org-wide HIPAA enforcement with a signed BAA', 'Admin control over model training', 'Individual usage reporting', 'Dedicated support manager', 'Invoicing and PO billing', 'Custom legal terms']}/>
-    </div>
-    <button className={styles.promo} onClick={offline}>Add promo code +</button>
-    <div className={styles.settingsFooter}><button onClick={offline}>Plans and billing FAQ</button><span>Questions about billing? <button onClick={offline}>Contact us</button></span></div>
-  </>;
-}
-
-function PlanCard({ kicker, name, badge, price, discount, action, intro, features }: { kicker: string; name: string; badge?: string; price: string; discount?: string; action: ReactNode; intro?: string; features: string[] }) {
-  return <article className={styles.plan}><span className={styles.planKicker}>{kicker}</span><div className={styles.planName}><h2>{name}</h2>{badge && <Badge tone="accent">{badge}</Badge>}</div><div className={styles.planPrice}><strong>{price}</strong>{discount && <Badge tone="success">{discount}</Badge>}</div>{action}{intro && <b className={styles.planIntro}>{intro}</b>}<ul>{features.map((feature) => <li key={feature}><Check size={14}/>{feature}</li>)}</ul></article>;
-}
 
 function DataSection({ s, patch }: SectionProps) {
   const categories = ['dictation', 'dictionary', 'meetings', 'notes', 'personalization', 'todos'] as const;
@@ -653,7 +633,6 @@ function SettingsContent(props: SectionProps & { section: SettingsSection }) {
     case 'mcp': return <McpSection />;
     case 'account': return <AccountSection {...props} />;
     case 'team': return <TeamSection />;
-    case 'plans': return <PlansSection />;
     case 'data': return <DataSection {...props} />;
   }
 }

@@ -114,7 +114,7 @@ export function registerApp(): void {
     readClipboard: () => clipboard.readText(),
     playSound: (name) => broadcast('sound:play', { name }),
     completeOnboarding() {
-      settings.patch({ onboardingComplete: true, onboardingStep: 'done' });
+      settings.patch({ onboardingComplete: true, onboardingDeferred: false, onboardingStep: 'done' });
     },
     async onboardingPractice(kind, input) {
       const clean = input.trim();

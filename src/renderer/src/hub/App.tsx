@@ -36,7 +36,7 @@ export function App() {
   useEvent('settings:open', ({ section }) => openSettings((section as SettingsSection | null) ?? 'general'));
   useEvent('diff:show', (d) => showDiff(d));
 
-  if (!settings.onboardingComplete) return <Onboarding />;
+  if (!settings.onboardingComplete && !settings.onboardingDeferred) return <Onboarding />;
 
   return (
     <>

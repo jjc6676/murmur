@@ -38,6 +38,13 @@ test('onboarding completes and settings persist across every section', async () 
 
     await expect(hub.getByRole('heading', { name: 'Give Murmur permissions on your computer' })).toBeVisible();
     await screenshot(hub, 'murmur-onboarding-permissions.png');
+    await hub.getByRole('button', { name: 'Finish later' }).click();
+    await expect(hub.getByRole('button', { name: 'Finish setup' })).toBeVisible();
+    const deferredSettings = await invoke<Settings>(hub, 'settings:get');
+    expect(deferredSettings.onboardingDeferred).toBe(true);
+    expect(deferredSettings.onboardingStep).toBe('permissions');
+    await hub.getByRole('button', { name: 'Finish setup' }).click();
+    await expect(hub.getByRole('heading', { name: 'Give Murmur permissions on your computer' })).toBeVisible();
     await hub.getByRole('button', { name: 'Allow' }).first().click();
     await expect(hub.getByText('Microphone is ready.')).toBeVisible();
     await hub.getByRole('button', { name: 'Allow' }).first().click();
@@ -114,7 +121,6 @@ test('onboarding completes and settings persist across every section', async () 
       { nav: 'MCP', title: 'MCP', image: 'mcp' },
       { nav: 'Account', title: 'Account', image: 'account' },
       { nav: 'Team', title: 'Team', image: 'team' },
-      { nav: 'Plans and Billing', title: 'Plans and Billing', image: 'plans' },
       { nav: 'Data and Privacy', title: 'Data and Privacy', image: 'data' },
     ];
 
@@ -176,8 +182,6 @@ test('onboarding completes and settings persist across every section', async () 
     await screenshot(hub, 'murmur-settings-account.png');
     await settingsDialog.getByRole('button', { name: 'Team', exact: true }).click();
     await screenshot(hub, 'murmur-settings-team.png');
-    await settingsDialog.getByRole('button', { name: 'Plans and Billing', exact: true }).click();
-    await screenshot(hub, 'murmur-settings-plans.png');
 
     await settingsDialog.getByRole('button', { name: 'Data and Privacy', exact: true }).click();
     await hub.getByLabel('Local data storage').selectOption('auto_delete_24h');

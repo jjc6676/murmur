@@ -152,10 +152,10 @@
 .chips span { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border-radius: 999px; background: var(--background-secondary); font-size: 12px; }
 .chips button { border: 0; color: inherit; background: none; cursor: pointer; }
 
-.cardGrid, .planGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; }
-.appCard, .plan, .heroCard { padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--background-secondary); }
-.appCard h3, .plan h2 { margin: 10px 0 6px; }
-.appCard p, .plan p, .plan li { color: var(--foreground-secondary); font-size: 13px; line-height: 1.5; }
+.cardGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; }
+.appCard, .heroCard { padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--background-secondary); }
+.appCard h3 { margin: 10px 0 6px; }
+.appCard p { color: var(--foreground-secondary); font-size: 13px; line-height: 1.5; }
 .heroCard { margin-bottom: 24px; text-align: center; }
 .code { max-height: 250px; padding: 14px; overflow: auto; border-radius: 8px; background: var(--background-tertiary); color: var(--foreground); white-space: pre-wrap; font: 12px/1.5 'JetBrains Mono', monospace; }
 .profile { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
@@ -184,25 +184,11 @@
 .teamForm h2 { margin: 0 0 10px; font-family: 'EB Garamond', serif; font-size: 28px; font-weight: 400; }
 .teamForm p { margin: 0 0 18px; color: var(--foreground-secondary); line-height: 1.45; }
 .emailList { display: grid; gap: 8px; }
-.textLink, .promo, .settingsFooter button { width: max-content; padding: 0; border: 0; color: var(--foreground); background: none; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.textLink, .settingsFooter button { width: max-content; padding: 0; border: 0; color: var(--foreground); background: none; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
 .textLink { margin: 12px 0 20px; }
 .settingsFooter { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--foreground-secondary); font-size: 12px; }
 .settingsFooter button { text-decoration: underline; }
 
-.refresh { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 8px; color: var(--foreground-secondary); background: var(--card); cursor: pointer; }
-.billingToggle { width: max-content; margin: -4px auto 20px; }
-.planGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; gap: 10px; }
-.plan { display: flex; flex-direction: column; padding: 15px; background: var(--card); }
-.planKicker { min-height: 28px; color: var(--foreground-tertiary); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
-.planName, .planPrice { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.planName h2 { margin: 4px 0 10px; font-family: 'EB Garamond', serif; font-size: 22px; font-weight: 500; }
-.planPrice { min-height: 38px; margin-bottom: 12px; }
-.planPrice strong { font-size: 14px; }
-.planIntro { margin: 18px 0 8px; font-size: 11px; }
-.plan ul { display: grid; gap: 7px; margin: 16px 0 0; padding: 0; list-style: none; }
-.plan li { display: grid; grid-template-columns: 14px 1fr; align-items: start; gap: 5px; font-size: 10px; line-height: 1.35; }
-.plan li svg { margin-top: 1px; color: var(--success); }
-.promo { margin-top: -8px; }
 
 .quizStep { color: var(--foreground-tertiary); font-size: 11px; font-weight: 700; letter-spacing: .1em; }
 .quizChoices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 20px 0; }
@@ -235,7 +221,7 @@
   .dialog { width: 100vw; height: 100vh; grid-template-columns: 164px minmax(0, 1fr); border-radius: 0; }
   .content { padding: 28px 20px 40px; }
   .navButton { font-size: 12px; }
-  .cardGrid, .planGrid, .formGrid { grid-template-columns: 1fr; }
+  .cardGrid, .formGrid { grid-template-columns: 1fr; }
   .formGrid > :last-child { grid-column: auto; }
   .teamInvite { grid-template-columns: 1fr; }
   .teamArt { min-height: 160px; }

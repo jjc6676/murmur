@@ -9,7 +9,6 @@ import {
   CircleDot,
   CircleHelp,
   CircleUserRound,
-  Gift,
   LayoutGrid,
   ListTodo,
   Minus,
@@ -35,7 +34,7 @@ import { Logo } from './Logo';
 import { AccountMenu } from './AccountMenu';
 import { HelpMenu } from './HelpMenu';
 import { NotificationCenter } from './NotificationCenter';
-import { InviteTeamDialog, ReferralDialog, UpgradeDialog } from './CloudDialogs';
+import { InviteTeamDialog } from './CloudDialogs';
 import { NotetakerChecklist } from './NotetakerChecklist';
 import s from './Shell.module.css';
 
@@ -53,8 +52,9 @@ const NAV: { to: string; label: string; icon: ReactNode }[] = [
   { to: '/skills', label: 'Skills', icon: <Sparkles size={18} /> },
   { to: '/memory', label: 'Memory', icon: <Brain size={18} /> },
 ];
+const ONBOARDING_STAGES = ['signup', 'permissions', 'setup', 'learn', 'personalize'] as const;
 
-function TitleBar({ onToggleSidebar, onUpgrade }: { onToggleSidebar: () => void; onUpgrade: () => void }) {
+function TitleBar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const settings = useSettings();
   const patch = usePatchSettings();
   const setNotificationsOpen = useHubUi((st) => st.setNotificationsOpen);
@@ -80,9 +80,6 @@ function TitleBar({ onToggleSidebar, onUpgrade }: { onToggleSidebar: () => void;
         />
       </div>
       <div className={cx(s.titleRight, 'no-drag')}>
-        <button type="button" className={s.upgrade} onClick={onUpgrade}>
-          Get unlimited access
-        </button>
         <IconButton label="Theme" onClick={() => void patch({ theme: dark ? 'light' : 'dark' })}>
           {dark ? <Sun size={18} /> : <Moon size={18} />}
         </IconButton>
@@ -114,16 +111,22 @@ export function Shell({ children }: { children: ReactNode }) {
   const openSettings = useHubUi((st) => st.openSettings);
   const navigate = useNavigate();
   const location = useLocation();
-  const [dialog, setDialog] = useState<null | 'invite' | 'referral' | 'upgrade'>(null);
+  const [dialog, setDialog] = useState<null | 'invite'>(null);
   const open = settings.sidebarOpen;
   const settingsAttention = settings.llm.provider === 'none' ? 1 : 0;
   return (
     <div className={s.frame}>
-      <TitleBar onToggleSidebar={() => void patch({ sidebarOpen: !open })} onUpgrade={() => setDialog('upgrade')} />
+      <TitleBar onToggleSidebar={() => void patch({ sidebarOpen: !open })} />
       <aside className={cx(s.sidebar, !open && s.sidebarClosed)} aria-hidden={!open}>
         <button type="button" className={s.logo} onClick={() => navigate('/')} aria-label="Murmur home">
           <Logo />
         </button>
+        {!settings.onboardingComplete && (
+          <button type="button" className={s.finishSetup} onClick={() => void patch({ onboardingDeferred: false })}>
+            <span><Sparkles size={17} /> Finish setup</span>
+            <small>{Math.max(1, ONBOARDING_STAGES.indexOf(settings.onboardingStep as typeof ONBOARDING_STAGES[number]) + 1)} of {ONBOARDING_STAGES.length}</small>
+          </button>
+        )}
         <div className={s.sidebarScroll}>
         <nav aria-label="Main navigation" className={s.nav}>
           {NAV.map((n) => (
@@ -157,10 +160,6 @@ export function Shell({ children }: { children: ReactNode }) {
             <Users size={18} />
             <span>Invite your team</span>
           </button>
-          <button type="button" className={s.navItem} onClick={() => setDialog('referral')}>
-            <Gift size={18} />
-            <span>Get a free month</span>
-          </button>
           <button type="button" className={s.navItem} onClick={() => openSettings('general')}>
             <SettingsIcon size={18} />
             <span>Settings</span>
@@ -179,8 +178,6 @@ export function Shell({ children }: { children: ReactNode }) {
       <main className={cx(s.content, !open && s.contentFull)}>{children}</main>
       <NotificationCenter />
       <InviteTeamDialog open={dialog === 'invite'} onClose={() => setDialog(null)} />
-      <ReferralDialog open={dialog === 'referral'} onClose={() => setDialog(null)} />
-      <UpgradeDialog open={dialog === 'upgrade'} onClose={() => setDialog(null)} />
     </div>
   );
 }

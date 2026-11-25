@@ -174,7 +174,7 @@ export function HomePage() {
         </div>
       </div>
       <Dialog
-        open={!settings.postOnboardingCompleted}
+        open={settings.onboardingComplete && !settings.postOnboardingCompleted}
         onClose={() => void completeOnboarding([])}
         title="How would you like to use Murmur first?"
         width={720}

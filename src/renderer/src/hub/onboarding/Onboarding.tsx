@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Check, ChevronLeft, Code2, Gauge, Keyboard, List, Lock, Mail, MessageSquare, Mic, MonitorUp, Sparkles } from 'lucide-react';
+import { Check, ChevronLeft, Code2, Gauge, Keyboard, List, Lock, Mail, MessageSquare, Mic, MonitorUp, Sparkles, X } from 'lucide-react';
 import type { StyleContext, StyleTone } from '@shared/types';
 import type { Settings } from '@shared/settings';
 import { applyTone, capitalize, ensureTerminalPunctuation } from '@shared/textPipeline';
@@ -288,7 +288,7 @@ export function Onboarding() {
   const stageIndex = STAGES.findIndex((x) => x.id === stage);
   const signupLast = settings.profile.intents.includes('notetaker') ? 5 : 4;
   const maxSubstep = stage === 'signup' ? signupLast : stage === 'setup' ? 3 : 0;
-  const goStage = (nextStage: Stage) => { setStage(nextStage); setSubstep(0); void patch({ onboardingStep: nextStage }); };
+  const goStage = (nextStage: Stage) => { setStage(nextStage); setSubstep(0); void patch({ onboardingStep: nextStage, onboardingDeferred: false }); };
   const next = () => {
     const page = `${stage}-${substep}`;
     void patch({ onboardingPagesCompleted: [...settings.onboardingPagesCompleted.filter((item) => item.page !== page), { page, completed: true }] });
@@ -296,6 +296,7 @@ export function Onboarding() {
     else if (stageIndex < STAGES.length - 1) goStage(STAGES[stageIndex + 1].id);
   };
   const back = () => { if (substep > 0) setSubstep((x) => x - 1); else if (stageIndex > 0) goStage(STAGES[stageIndex - 1].id); };
+  const defer = () => void patch({ onboardingStep: stage, onboardingDeferred: true });
   const body = stage === 'signup' ? <SignupStep substep={substep} next={next}/> : stage === 'permissions' ? <PermissionsStep next={next}/> : stage === 'setup' ? <SetupStep substep={substep} next={next}/> : stage === 'learn' ? <LearnStep next={next}/> : <PersonalizeStep/>;
-  return <div className={styles.root}><header className={styles.rail}><div className={styles.wordmark}><Logo size={20}/></div><nav aria-label="Onboarding progress">{STAGES.map((item, index) => <span key={item.id} className={index <= stageIndex ? styles.current : ''}>{index < stageIndex ? <Check size={14}/> : null}{item.label}{index < STAGES.length - 1 && <b>›</b>}</span>)}</nav>{(stageIndex > 0 || substep > 0) ? <button aria-label="Back" className={styles.back} onClick={back}><ChevronLeft/> Back</button> : <span/>}</header>{showNudge && <div className={styles.nudge} role="status"><div><strong>Just a few more steps!</strong><span>Return to Murmur and finish onboarding.</span></div><Button size="sm" onClick={() => setShowNudge(false)}>Finish onboarding</Button></div>}{body}</div>;
+  return <div className={styles.root}><header className={styles.rail}><div className={styles.wordmark}><Logo size={20}/></div><nav aria-label="Onboarding progress">{STAGES.map((item, index) => <span key={item.id} className={index <= stageIndex ? styles.current : ''}>{index < stageIndex ? <Check size={14}/> : null}{item.label}{index < STAGES.length - 1 && <b>›</b>}</span>)}</nav><div className={styles.railActions}>{(stageIndex > 0 || substep > 0) && <button className={styles.back} onClick={back}><ChevronLeft/> Back</button>}<button className={styles.defer} onClick={defer}><X size={16}/> Finish later</button></div></header>{showNudge && <div className={styles.nudge} role="status"><div><strong>Just a few more steps!</strong><span>Return to Murmur and finish onboarding.</span></div><Button size="sm" onClick={() => setShowNudge(false)}>Finish onboarding</Button></div>}{body}</div>;
 }
