@@ -122,6 +122,7 @@ export interface TransformDef {
   prompt: string; // instructions given to the LLM
   builtIn: boolean;
   shortcut: string | null; // combo, e.g. "Win+Alt+1"
+  collection?: string; // curated library collection id
   rules?: { id: string; label: string; enabled: boolean; custom: boolean }[]; // polish only
 }
 

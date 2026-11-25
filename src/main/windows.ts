@@ -6,11 +6,13 @@ import { paths } from './paths';
 import { getForegroundWindowRect } from './native/win32';
 import { eventChannel } from '@shared/ipc';
 
-export type WindowKind = 'hub' | 'status' | 'scratchpad' | 'recorder' | 'capture';
+export type WindowKind = 'hub' | 'status' | 'scratchpad' | 'recorder' | 'capture' | 'transformPicker';
 
 const registry = new Map<WindowKind, BrowserWindow>();
 const STATUS_W = 440;
 const STATUS_H = 260;
+const PICKER_W = 420;
+const PICKER_H = 520;
 
 function load(win: BrowserWindow, page: string, hash = ''): void {
   const dev = process.env.ELECTRON_RENDERER_URL;
@@ -151,6 +153,41 @@ function startStatusTracking(win: BrowserWindow): void {
       win.webContents.send(eventChannel('status:hover'), { inside });
     }
   }, HIT_POLL_MS);
+}
+
+export function ensureTransformPicker(): BrowserWindow {
+  const cursor = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(cursor);
+  const area = display.workArea;
+  const x = Math.min(Math.max(cursor.x - Math.round(PICKER_W / 2), area.x + 8), area.x + area.width - PICKER_W - 8);
+  const y = Math.min(Math.max(cursor.y + 12, area.y + 8), area.y + area.height - PICKER_H - 8);
+  let win = getWindow('transformPicker');
+  if (!win) {
+    win = base('transformPicker', {
+      width: PICKER_W,
+      height: PICKER_H,
+      x,
+      y,
+      frame: false,
+      resizable: false,
+      maximizable: false,
+      minimizable: false,
+      skipTaskbar: true,
+      alwaysOnTop: true,
+      title: 'Apply transform',
+    });
+    win.setAlwaysOnTop(true, 'pop-up-menu');
+    load(win, 'transform-picker');
+    win.once('ready-to-show', () => {
+      win?.show();
+      win?.focus();
+    });
+  } else {
+    win.setPosition(x, y);
+    win.show();
+    win.focus();
+  }
+  return win;
 }
 
 export function ensureScratchpad(show = true): BrowserWindow {

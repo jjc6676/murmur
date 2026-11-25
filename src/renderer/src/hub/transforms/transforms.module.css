@@ -1,4 +1,4 @@
-.headerControls { display:flex; align-items:center; gap:10px; }
+.headerControls { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:10px; }
 .shortcutPill { display:flex; align-items:center; gap:6px; padding:6px 10px; border:1px solid var(--border); border-radius:18px; background:var(--background-secondary); color:var(--foreground-secondary); font-size:13px; }
 .hero { margin-top:20px; }
 .heroArt { position:absolute; inset:0 0 0 60%; background:radial-gradient(circle at 40% 40%, rgb(233 150 91 / .75), transparent 28%), radial-gradient(circle at 80% 70%, rgb(105 170 136 / .7), transparent 35%); }
@@ -9,9 +9,32 @@
 .cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
 .card { min-height:144px; padding:22px; text-align:left; border:1px solid var(--border); border-radius:16px; background:var(--card); color:var(--foreground); cursor:pointer; }
 .card:hover { background:var(--row-hover); }
-.card h3 { margin:15px 0 6px; font-size:15px; }
+.card h3, .card h4 { margin:15px 0 6px; font-size:15px; }
 .card p { margin:0; color:var(--foreground-tertiary); font-size:14px; }
 .plus { display:grid; place-items:center; width:30px; height:30px; border-radius:50%; background:var(--background-secondary); }
+.myGroups { display:grid; gap:22px; }
+.groupTitle { display:flex; align-items:center; gap:8px; margin:0 0 10px; color:var(--foreground-secondary); font-size:13px; text-transform:uppercase; letter-spacing:.05em; }
+.groupTitle span { min-width:22px; padding:2px 6px; border-radius:10px; background:var(--background-secondary); color:var(--foreground-tertiary); font-size:11px; text-align:center; }
+.library { margin-top:42px; padding-top:30px; border-top:1px solid var(--border); }
+.libraryHead { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
+.libraryHead h2 { margin:0; font:500 30px 'EB Garamond'; }
+.libraryHead p, .collectionHead p { margin-top:4px; color:var(--foreground-tertiary); font-size:14px; }
+.librarySearch { max-width:460px; margin-top:18px; }
+.collectionTabs { display:flex; gap:8px; margin:14px 0 22px; padding-bottom:5px; overflow-x:auto; }
+.collectionTabs button { flex:none; display:flex; align-items:center; gap:6px; padding:7px 11px; border:1px solid var(--border); border-radius:18px; background:var(--background); color:var(--foreground-secondary); font-size:13px; }
+.collectionTabs button[aria-selected='true'] { border-color:var(--foreground); background:var(--foreground); color:var(--background); }
+.collectionTabs span { opacity:.7; font-size:11px; }
+.libraryCollections { display:grid; gap:28px; }
+.collectionHead { margin-bottom:11px; }
+.collectionHead h3 { margin:0; font-size:17px; }
+.libraryCards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.libraryCard { display:grid; grid-template-columns:1fr auto; align-items:start; gap:10px 14px; padding:16px; border:1px solid var(--border); border-radius:12px; background:var(--card); }
+.libraryCard h4 { margin:0 0 4px; font-size:15px; }
+.libraryCard p { margin:0; color:var(--foreground-tertiary); font-size:13px; line-height:1.45; }
+.libraryCard details { grid-column:1 / -1; }
+.libraryCard summary { width:max-content; color:var(--foreground-secondary); cursor:pointer; font-size:12px; }
+.libraryCard details p { margin-top:8px; padding:10px; border-radius:8px; background:var(--background-secondary); color:var(--foreground-secondary); white-space:pre-wrap; }
+.libraryEmpty { padding:42px; border:1px dashed var(--border); border-radius:12px; color:var(--foreground-tertiary); text-align:center; }
 .dialogFields { display:grid; gap:16px; }
 .shortcutRecorder { display:flex; align-items:center; gap:10px; }
 .ruleList { display:grid; gap:7px; }
@@ -39,4 +62,5 @@
 .diff { line-height:1.9; white-space:pre-wrap; font-size:15px; }
 .diffAdd { padding:2px 1px; background:var(--success-soft); color:var(--success); text-decoration:none; }
 .diffRemove { padding:2px 1px; background:var(--destructive-soft); color:var(--destructive); }
-@media (max-width:800px) { .cards { grid-template-columns:1fr 1fr; } .resultGrid { grid-template-columns:1fr; } }
+@media (max-width:800px) { .cards, .libraryCards { grid-template-columns:1fr 1fr; } .resultGrid { grid-template-columns:1fr; } .headerControls { justify-content:flex-start; } }
+@media (max-width:620px) { .cards, .libraryCards { grid-template-columns:1fr; } .libraryHead { align-items:stretch; flex-direction:column; } }

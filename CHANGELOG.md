@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- Transform library: 100 ready-made transforms in 10 collections (Writing & Editing, Tone & Voice, Structure & Formatting, Summarize & Extract, Email, Messaging & Updates, Developer, AI Prompting, Social & Marketing, Language & Translation). Browse, search, preview and add them on the Transforms page; added ones are grouped by collection in My Transforms.
+- Transform picker: select text anywhere, press Win+Alt+T (or Flow Bar right-click → Apply transform…), type to filter, Enter to replace the selection.
+
 ## 0.3.0
 
 - Fix: "write EPIPE" crash after dictating. Paste verification timed out on a still-starting text-reading helper, killed it, then wrote to the dead process. Slow replies no longer kill the helper, a dead helper can never crash the app, and it starts with Murmur.

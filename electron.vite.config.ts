@@ -34,6 +34,7 @@ export default defineConfig({
           scratchpad: resolve('src/renderer/scratchpad.html'),
           recorder: resolve('src/renderer/recorder.html'),
           capture: resolve('src/renderer/capture.html'),
+          transformPicker: resolve('src/renderer/transform-picker.html'),
         },
       },
     },

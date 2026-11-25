@@ -1,20 +1,24 @@
 // Transforms (Polish, Prompt Engineer, custom prompts): rewrite text via the LLM CLI, optionally on the current selection.
 import { clipboard } from 'electron';
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { TransformDef, TransformRun } from '@shared/types';
 import { BUILT_IN_TRANSFORMS } from '@shared/settings';
 import { countWords } from '@shared/textPipeline';
 import { getCtx } from '../context';
 import { broadcast, handle } from '../ipc';
 import { newId, nowIso } from '../db';
-import { getForegroundApp, type ForegroundApp } from '../native/win32';
+import { focusWindow, getForegroundApp, type ForegroundApp } from '../native/win32';
 import { copySelection, pasteText, waitForModifiersReleased } from '../native/textio';
 import { readFocusedText } from '../native/uia';
 import { showNudge, showToast } from '../toasts';
+import { ensureTransformPicker, getWindow } from '../windows';
 
 const MAX_WORDS = 3000;
 
 let lastRun: { run: TransformRun; target: ForegroundApp } | null = null;
 let running: AbortController | null = null;
+let pickerTarget: ForegroundApp | null = null;
+
 
 function transformById(id: string): TransformDef {
   const t = getCtx().settings.get().transforms.find((x) => x.id === id);
@@ -80,8 +84,8 @@ export function isTransforming(): boolean {
   return running !== null;
 }
 
-/** Hotkey path: copy selection in the focused app, transform it, paste the result back. */
-export async function applyToSelection(transformId: string): Promise<TransformRun | null> {
+/** Copy the target app's selection, transform it, and paste the result back. */
+export async function applyToSelection(transformId: string, explicitTarget?: ForegroundApp): Promise<TransformRun | null> {
   const { settings, hotkeys } = getCtx();
   const s = settings.get();
   if (!s.transformsEnabled) return null;
@@ -90,8 +94,12 @@ export async function applyToSelection(transformId: string): Promise<TransformRu
     return null;
   }
   const t = transformById(transformId);
-  const target = getForegroundApp();
+  const target = explicitTarget ?? getForegroundApp();
   await waitForModifiersReleased((k) => hotkeys.isHeld(k));
+  if (explicitTarget?.hwnd) {
+    focusWindow(explicitTarget.hwnd);
+    await sleep(80);
+  }
   const focused = await readFocusedText();
   if (!focused.ok) {
     showToast({ key: 'PolishTextboxDetectionFailed', title: "Couldn't detect text in your text box", body: 'Click into the text box and try again.', target: 'bar', tone: 'warning' });
@@ -150,6 +158,24 @@ export async function applyToSelection(transformId: string): Promise<TransformRu
   return run;
 }
 
+export function openTransformPicker(): void {
+  pickerTarget = getForegroundApp();
+  ensureTransformPicker();
+}
+
+export function closeTransformPicker(): void {
+  pickerTarget = null;
+  getWindow('transformPicker')?.close();
+}
+
+async function chooseFromPicker(transformId: string): Promise<TransformRun | null> {
+  const target = pickerTarget;
+  pickerTarget = null;
+  getWindow('transformPicker')?.close();
+  if (!target) return null;
+  return applyToSelection(transformId, target);
+}
+
 /** Restore the original text of the last transform by pasting it over the (still selected) output. */
 export async function undoLast(): Promise<void> {
   if (!lastRun) return;
@@ -164,6 +190,9 @@ export function registerTransforms(): void {
   handle('transforms', {
     run: (id, text, instruction) => execute(id, text, 'murmur', instruction),
     applyToSelection: (id) => applyToSelection(id),
+    openPicker: () => openTransformPicker(),
+    chooseFromPicker: (id) => chooseFromPicker(id),
+    closePicker: () => closeTransformPicker(),
     history: (limit) => db.all<TransformRun>('SELECT * FROM transform_runs ORDER BY createdAt DESC LIMIT ?', limit),
     undoLast: () => undoLast(),
     resetDefaults: () => settings.set('transforms', BUILT_IN_TRANSFORMS),

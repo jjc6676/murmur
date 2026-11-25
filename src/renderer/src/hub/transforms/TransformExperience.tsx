@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Copy, Plus, RotateCcw, Sparkles, ThumbsDown, ThumbsUp, Trash2, Undo2 } from 'lucide-react';
+import { Check, Copy, RotateCcw, ThumbsDown, ThumbsUp, Trash2, Undo2 } from 'lucide-react';
 import { BUILT_IN_TRANSFORMS, POLISH_RULES } from '@shared/settings';
 import type { TransformDef, TransformRun } from '@shared/types';
 import { countWords } from '@shared/textPipeline';
@@ -8,6 +8,7 @@ import { api, errorMessage } from '../../lib/api';
 import { usePatchSettings, useSettings } from '../../lib/settings';
 import { toast, useHubUi } from '../state';
 import { Badge, Banner, Button, Checkbox, ConfirmDialog, Dialog, Field, IconButton, Input, Kbd, Page, PageHeader, Select, TextArea, Toggle } from '../../ui';
+import { MyTransforms, TransformLibrary } from './TransformLibrary';
 import styles from './transforms.module.css';
 
 export function TransformExperience() {
@@ -30,14 +31,15 @@ export function TransformExperience() {
     });
   }
   return <Page wide>
-    <PageHeader title="Transforms" badge={<Badge tone="dark">Beta</Badge>} actions={<div className={styles.headerControls}><span>Opt in</span><Toggle label="Opt in to Transforms" checked={settings.transformsEnabled} onChange={(checked) => void setEnabled(checked)} /><div className={styles.shortcutPill}><Kbd combo={settings.shortcuts.viewDiff[0] || 'Win+Alt+O'} /> <span>to view changes</span></div></div>} />
+    <PageHeader title="Transforms" badge={<Badge tone="dark">Beta</Badge>} actions={<div className={styles.headerControls}><span>Opt in</span><Toggle label="Opt in to Transforms" checked={settings.transformsEnabled} onChange={(checked) => void setEnabled(checked)} /><div className={styles.shortcutPill}><Kbd combo={settings.shortcuts.transformPicker[0] || 'Win+Alt+T'} /> <span>to choose a transform</span></div>{settings.shortcuts.viewDiff[0] && <div className={styles.shortcutPill}><Kbd combo={settings.shortcuts.viewDiff[0]} /> <span>to view changes</span></div>}</div>} />
     <div className={styles.hero}><Banner variant="teal" art={<div className={styles.heroArt} />} title="Transform works anywhere you write" body="Apply a Transform to rewrite, clean up, or restructure text after you dictate." actions={<><Button variant="light" onClick={() => setTryOpen(true)}>Try it out</Button><Button variant="ghost" onClick={() => setHow(true)}>How it works</Button></>} /></div>
     <div className={styles.autoRow}><div><strong>Auto Apply After Dictation</strong><div className="m-field__hint">Run a transform on everything you dictate, automatically.</div></div><div className={styles.autoControls}><Select ariaLabel="Auto apply transform" disabled={!settings.autoApplyAfterDictation.active} value={settings.autoApplyAfterDictation.transformId} options={settings.transforms.map((t) => ({ value: t.id, label: t.name }))} onChange={(transformId) => void patch({ autoApplyAfterDictation: { transformId } })} /><Toggle label="Auto Apply After Dictation" checked={settings.autoApplyAfterDictation.active} onChange={(active) => void patch({ autoApplyAfterDictation: { active } })} /></div></div>
     <div className={styles.sectionHead}><h2>My Transforms</h2><div><Button variant="ghost" icon={<RotateCcw size={16} />} onClick={() => setReset(true)}>Reset to defaults</Button><Button onClick={() => setEditor('new')}>Create New</Button></div></div>
-    <div className={styles.cards}>{settings.transforms.map((transform) => <button className={styles.card} key={transform.id} onClick={() => setEditor(transform)}>{transform.shortcut ? <Kbd combo={transform.shortcut} /> : <span className={styles.plus}><Sparkles size={15} /></span>}<h3>{transform.name}</h3><p>{transform.description}</p></button>)}<button className={styles.card} onClick={() => setEditor('new')}><span className={styles.plus}><Plus size={16} /></span><h3>Create your own</h3><p>Upload your own prompt</p></button></div>
+    <MyTransforms onEdit={setEditor} onCreate={() => setEditor('new')} />
+    <TransformLibrary />
     {tryOpen && <TryPanel onClose={() => setTryOpen(false)} />}
     <TransformEditor value={editor} onClose={() => setEditor(null)} />
-    <Dialog open={how} onClose={() => setHow(false)} title="How Transforms work"><div className={styles.howSteps}><div className={styles.howStep}><span className={styles.stepNo}>1</span><div><strong>Highlight your text</strong><p>Select anything you want to rewrite in any app.</p></div></div><div className={styles.howStep}><span className={styles.stepNo}>2</span><div><strong>Press the shortcut</strong><p>Use the shortcut on a Transform card. Murmur replaces the selection.</p></div></div><div className={styles.howStep}><span className={styles.stepNo}>3</span><div><strong>Review changes</strong><p>Open the changes view to compare and copy the result.</p></div></div></div></Dialog>
+    <Dialog open={how} onClose={() => setHow(false)} title="How Transforms work"><div className={styles.howSteps}><div className={styles.howStep}><span className={styles.stepNo}>1</span><div><strong>Highlight your text</strong><p>Select anything you want to rewrite in any app.</p></div></div><div className={styles.howStep}><span className={styles.stepNo}>2</span><div><strong>Open the transform picker</strong><p>Press the picker shortcut, search your transforms, then press Enter.</p></div></div><div className={styles.howStep}><span className={styles.stepNo}>3</span><div><strong>Review changes</strong><p>Open the changes view to compare and copy the result.</p></div></div></div></Dialog>
     <ConfirmDialog open={reset} title="Reset transforms to defaults?" body="This removes all custom transforms and restores Polish and Prompt Engineer." confirmLabel="Reset to defaults" danger onClose={() => setReset(false)} onConfirm={() => void resetDefaults()} />
   </Page>;
 }

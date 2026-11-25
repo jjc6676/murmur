@@ -5,7 +5,7 @@ import { broadcast } from './ipc';
 import { sendChord, VK } from './native/win32';
 import { showNudge, showToast } from './toasts';
 import { cancelDictation, cancelDictationForOtherShortcut, copyLast, getDictationState, handleUndoShortcut, isDictating, pasteLast, startDictation, stopDictation } from './features/dictation';
-import { applyToSelection, cancelTransform } from './features/transforms';
+import { applyToSelection, cancelTransform, openTransformPicker } from './features/transforms';
 import { openScratchpad } from './features/notes';
 import { toggleRecording } from './features/recorder';
 
@@ -39,6 +39,7 @@ function handlers(): Record<ShortcutAction, Handler> {
     instruct: { down: () => startDictation('instruct'), up: () => getDictationState().mode === 'instruct' && stopDictation() },
     polish: { down: () => void runTransform('polish') },
     viewDiff: { down: () => lastTransformDiff && broadcast('diff:show', lastTransformDiff) },
+    transformPicker: { down: () => openTransformPicker() },
     openScratchpad: { down: () => openScratchpad() },
     startNotetaker: { down: () => void toggleRecording() },
     pressEnter: { down: () => sendChord([], VK.RETURN) },

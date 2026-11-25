@@ -156,6 +156,9 @@ export function FlowBar() {
           <button type="button" role="menuitem" onClick={() => { setMenu(false); void api.app.openHub('/history'); }}>
             <History size={15} /> Transcript history
           </button>
+          <button type="button" role="menuitem" onClick={() => { setMenu(false); void api.transforms.openPicker(); }}>
+            <WandSparkles size={15} /> Apply transform…
+          </button>
           <button type="button" role="menuitem" onClick={() => { setMenu(false); void api.app.openHub('/transforms'); }}>
             <WandSparkles size={15} /> Configure transforms
           </button>

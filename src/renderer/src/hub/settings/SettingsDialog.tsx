@@ -81,6 +81,7 @@ const SHORTCUTS: { action: ShortcutAction; title: string; description: string }[
   { action: 'cancel', title: 'Cancel', description: 'Dismiss an active dictation and notifications.' },
   { action: 'polish', title: 'Transform', description: 'Run Polish or your configured transformation.' },
   { action: 'viewDiff', title: 'Transform view changes', description: 'Open a diff after Transform.' },
+  { action: 'transformPicker', title: 'Transform picker', description: 'Search and apply any of your transforms to selected text.' },
   { action: 'command', title: 'Command Mode', description: 'Use selected text and ask Murmur; online Perplexity is unavailable offline.' },
   { action: 'instruct', title: 'Instruct Mode', description: 'Draft a reply using screen context.' },
   { action: 'openScratchpad', title: 'Open Scratchpad', description: 'Open the Scratchpad window.' },

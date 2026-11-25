@@ -112,6 +112,11 @@ export interface TransformsApi {
   run(transformId: string, text: string, instruction?: string): TransformRun;
   /** Apply transform to the selected text in the foreground app (copy selection -> transform -> paste). */
   applyToSelection(transformId: string): TransformRun | null;
+  /** Open the searchable transform picker for the current foreground app. */
+  openPicker(): void;
+  /** Apply a transform chosen in the picker to the selection captured when it opened. */
+  chooseFromPicker(transformId: string): TransformRun | null;
+  closePicker(): void;
   history(limit: number): TransformRun[];
   undoLast(): void;
   resetDefaults(): Settings;

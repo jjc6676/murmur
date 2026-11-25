@@ -12,6 +12,7 @@ export type ShortcutAction =
   | 'instruct'
   | 'polish'
   | 'viewDiff'
+  | 'transformPicker'
   | 'openScratchpad'
   | 'startNotetaker'
   | 'pressEnter'
@@ -238,6 +239,7 @@ export const DEFAULT_SETTINGS: Settings = {
     lens: ['Ctrl+Win+Alt'],
     instruct: [],
     polish: ['Win+Alt+1'],
+    transformPicker: ['Win+Alt+T'],
     viewDiff: [],
     openScratchpad: [],
     startNotetaker: ['Win+M+Space'],
