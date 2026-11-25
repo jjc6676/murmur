@@ -23,9 +23,12 @@ const USE_CASES = [
 const HOME_BANNERS = [
   { key: 'home-redesign', title: 'Home has a new look', body: 'Upcoming meetings, past notes, and recent dictations are now easier to reach.', action: 'Check it out' },
   { key: 'default-hold-to-dictate', title: 'Hold down your shortcut to dictate', body: 'Murmur works in email, messages, docs, and anywhere else you type.', action: 'Got it' },
+  { key: 'try-another-app', title: 'Murmur works anywhere you type', body: 'Open any email, message, document, or text box and start speaking.', action: 'Get started' },
   { key: 'snippets', title: 'Speak it once, reuse it anywhere', body: 'Snippets expand short spoken phrases into email, links, addresses, and prompts.', action: 'Try Snippets' },
   { key: 'microphone-quiz', title: 'Working around other people?', body: 'Tune your microphone setup for clear dictation in shared spaces.', action: 'Setup guidance' },
   { key: 'mouse-flow', title: 'Murmur using your mouse', body: 'Keyboards? Who needs them! Configure mouse buttons for dictation.', action: 'Learn more' },
+  { key: 'style', title: 'Make Murmur sound like you', body: 'Tune tone, formatting, and app-specific voice.', action: 'Open Style' },
+  { key: 'ide-tagging', title: 'Improve dictation in code editors', body: 'Choose which apps Murmur should recognize as coding tools.', action: 'Tag IDEs' },
 ] as const;
 
 const compactNumber = (value: number): string => value >= 1_000 ? `${(value / 1_000).toFixed(1)}K` : value.toLocaleString();
@@ -39,12 +42,14 @@ export function HomePage() {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
+  const [searching, setSearching] = useState(false);
   const [profileBuilding, setProfileBuilding] = useState(false);
   const [uses, setUses] = useState<string[]>([]);
   const [welcomeDismissed, setWelcomeDismissed] = useState(false);
   const [welcomeHelp, setWelcomeHelp] = useState('');
   const [mountedAt] = useState(() => Date.now());
   const refresh = useCallback(() => {
+    setSearching(true);
     void Promise.all([
       api.history.list({ query: query || undefined, limit: 60 }),
       api.stats.get(),
@@ -53,7 +58,7 @@ export function HomePage() {
       setEntries(nextEntries);
       setStats(nextStats);
       setProfile(nextProfile);
-    });
+    }).finally(() => setSearching(false));
   }, [query]);
   useEffect(refresh, [refresh]);
   useEvent('history:changed', refresh);
@@ -80,8 +85,16 @@ export function HomePage() {
     <Page wide>
       <div className={s.home}>
         <PageHeader title={<span className={s.homeHeader}>Welcome back{settings.profile.firstName ? `, ${settings.profile.firstName}` : ''}!</span>} />
+        <p className={s.returnPrompt}>Hey{settings.profile.firstName ? ` ${settings.profile.firstName}` : ''}, get back into Murmur with <Kbd combo={settings.shortcuts.ptt[0] || 'Ctrl+Win'} />.</p>
         <div className={s.homeGrid}>
           <div className={s.mainColumn}>
+            {!settings.dismissedBanners.includes('setup-gate') && settings.onboardingPermissions.some((permission) => permission.name === 'microphone' && !permission.granted) && (
+              <section className={s.banner}>
+                <div><h2>Complete setup to use dictation</h2><p>Choose a working microphone before you start dictating.</p></div>
+                <Button variant="light" size="sm" onClick={() => useHubUi.getState().openSettings('general')}>Complete setup</Button>
+                <IconButton label="Close setup reminder" className={s.bannerClose} onClick={() => void dismissBanner('setup-gate')}><X size={18} /></IconButton>
+              </section>
+            )}
             {visibleBanners.slice(0, 2).map((banner) => (
               <section className={s.banner} key={banner.key}>
                 <div><h2>{banner.title}</h2><p>{banner.body}</p></div>
@@ -89,6 +102,8 @@ export function HomePage() {
                   if (banner.key === 'snippets') void api.app.openHub('/snippets');
                   else if (banner.key === 'microphone-quiz') useHubUi.getState().openMicQuiz();
                   else if (banner.key === 'mouse-flow') void api.app.openSettings('dictation');
+                  else if (banner.key === 'style') void api.app.openHub('/style');
+                  else if (banner.key === 'ide-tagging') void api.app.openSettings('dictation');
                   void dismissBanner(banner.key);
                 }}>{banner.action}</Button>
                 <IconButton label={`Dismiss ${banner.title}`} className={s.bannerClose} onClick={() => void dismissBanner(banner.key)}><X size={18} /></IconButton>
@@ -103,7 +118,13 @@ export function HomePage() {
                 </IconButton>
               </div>
             </div>
-            {entries.length ? (
+            {settings.localDataStorage === 'never_store' ? (
+              <div className={s.empty}>
+                <EmptyState title="History disabled" body="Murmur is set to never store dictations. Change Local data storage in Settings to keep transcript history." />
+              </div>
+            ) : searching && query ? (
+              <div className={s.empty}><EmptyState title="Searching your history…" /></div>
+            ) : entries.length ? (
               <DictationList entries={entries} onChanged={refresh} hideFirstHeading />
             ) : (
               <div className={s.empty}>
@@ -121,6 +142,7 @@ export function HomePage() {
                 <div className={s.stat}><strong>{compactNumber(stats?.totalWords ?? 0)}</strong><span>total words</span></div>
                 <div className={s.stat}><strong>{stats?.averageWpm ?? 0}</strong><span>wpm</span></div>
                 <div className={s.stat}><strong>{stats?.dayStreak ?? 0}</strong><span>day streak</span></div>
+                <div className={s.stat}><strong>{stats?.weekStreak ?? 0}</strong><span>week streak</span></div>
               </div>
               <div className={s.voiceProfile}>
                 <h2>Your Voice Profile</h2>
@@ -129,9 +151,17 @@ export function HomePage() {
                 ) : (stats?.totalWords ?? 0) >= 2_000 ? (
                   <><p>Discover how you use your voice.</p><Button size="sm" variant="outline" loading={profileBuilding} onClick={() => void generateProfile()}>Generate profile</Button></>
                 ) : (
-                  <><p>Discover how you use your voice.</p><div className={s.unlockRow}><Progress value={stats ? Math.min(100, stats.totalWords / 20) : 0} /><span>Unlocks in {compactRemaining(profile?.wordsUntilUnlock ?? 2_000)} words</span></div></>
+                  <><p>Not enough data to refresh your profile. Discover how you use your voice as Murmur learns from locally stored dictations.</p><div className={s.unlockRow}><Progress value={stats ? Math.min(100, stats.totalWords / 20) : 0} /><span>Unlocks in {compactRemaining(profile?.wordsUntilUnlock ?? 2_000)} words</span></div></>
                 )}
               </div>
+            </Card>
+            <Card className={s.insightsCard}>
+              <h2>Get back into Murmur</h2>
+              {stats?.appsUsed.length ? (
+                <p>{stats.appsUsed.slice(0, 3).map((item) => item.app).join(' · ')}</p>
+              ) : (
+                <p>Start using Murmur in any app to see where your voice saves the most typing.</p>
+              )}
             </Card>
             <Link to="/notetaker" className={s.sideLink}>
               <Card className={s.notetakerCard}>
@@ -166,6 +196,10 @@ export function HomePage() {
         description="A lot has changed. What can Murmur help you with?"
         footer={<Button onClick={() => { setWelcomeDismissed(true); toast('Let’s Murmur!', { body: welcomeHelp || 'Hold your shortcut whenever you’re ready.', tone: 'success' }); }}>Let’s Murmur!</Button>}
       >
+        <div className={s.onboardingPills}>
+          <Link to="/insights" className={s.usePill} onClick={() => setWelcomeDismissed(true)}><strong>Explore your Voice Profile</strong><span>See patterns from local dictations.</span></Link>
+          <Link to="/notetaker" className={s.usePill} onClick={() => setWelcomeDismissed(true)}><strong>Try Notetaker</strong><span>Capture a meeting locally.</span></Link>
+        </div>
         <textarea className="m-textarea" aria-label="What can Murmur help with?" placeholder="Tell us what you want to accomplish…" value={welcomeHelp} onChange={(event) => setWelcomeHelp(event.target.value)} />
       </Dialog>
     </Page>

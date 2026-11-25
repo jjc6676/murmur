@@ -59,8 +59,14 @@ function onKey(down: boolean): void {
     { minIntervalMs: 15 * 60_000 },
     (a) => {
       if (a === 'mute') {
+        const previousMutedUntil = getCtx().settings.get().typingReminder.mutedUntil;
         getCtx().settings.patch({ typingReminder: { mutedUntil: Date.now() + 12 * 3600_000 } });
-        showToast({ key: 'TypingReminderMuted', title: 'Dictation reminder muted for 12 hours', target: 'bar' });
+        showToast(
+          { key: 'TypingReminderMuted', title: 'Dictation reminder muted for 12 hours', target: 'bar', actions: [{ id: 'undo', label: 'Undo' }] },
+          (action) => {
+            if (action === 'undo') getCtx().settings.patch({ typingReminder: { mutedUntil: previousMutedUntil } });
+          },
+        );
       }
     },
   );

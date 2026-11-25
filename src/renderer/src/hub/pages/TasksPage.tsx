@@ -32,6 +32,7 @@ export function TasksPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleteIds, setDeleteIds] = useState<string[]>([]);
   const [showCoachmark, setShowCoachmark] = useState(true);
+  const [archiveAllOpen, setArchiveAllOpen] = useState(false);
   const [automation, setAutomation] = useState<{ kind: AutomationKind; task: Todo } | null>(null);
 
   const load = useCallback(async () => {
@@ -87,7 +88,7 @@ export function TasksPage() {
 
   return (
     <Page wide>
-      <PageHeader title="My Tasks" />
+      <PageHeader title="My Tasks" actions={tab !== 'archived' && tasks.length ? <Button variant="outline" icon={<Archive size={16} />} onClick={() => setArchiveAllOpen(true)}>Archive all</Button> : undefined} />
       {showCoachmark && (
         <section className={styles.coachmark}>
           <div className={styles.coachIcon}><Check size={22} /></div>
@@ -107,6 +108,7 @@ export function TasksPage() {
           ]}
         />
         <label className={styles.search}><Search size={16} /><input aria-label="Search tasks" placeholder="Search tasks" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+        {query && <Button size="sm" variant="ghost" icon={<X size={14} />} onClick={() => setQuery('')}>Clear search</Button>}
       </div>
       {tab !== 'archived' && (
         <form className={styles.addTask} onSubmit={(event) => { event.preventDefault(); void add(); }}>
@@ -201,6 +203,21 @@ export function TasksPage() {
         <Button variant="outline" size="sm" onClick={() => toast('Murmur runs fully offline', { body: 'Online task connectors are not available.', tone: 'info' })}>Learn more</Button>
       </section>
       <AutomationDialog value={automation} onClose={() => setAutomation(null)} />
+      <ConfirmDialog
+        open={archiveAllOpen}
+        title={`Archive all ${tasks.length} tasks?`}
+        body="Every task in this view will move to Archived. You can restore them later."
+        confirmLabel="Archive all"
+        onClose={() => setArchiveAllOpen(false)}
+        onConfirm={() => {
+          const ids = tasks.map((task) => task.id);
+          setArchiveAllOpen(false);
+          void api.todos.archiveMany(ids, true).then(() => toast(`${ids.length} tasks archived`, {
+            tone: 'success',
+            actions: [{ label: 'Undo', onClick: () => void api.todos.archiveMany(ids, false) }],
+          }));
+        }}
+      />
       <ConfirmDialog
         open={deleteIds.length > 0}
         title={`Delete ${deleteIds.length === 1 ? 'task' : `${deleteIds.length} tasks`}?`}

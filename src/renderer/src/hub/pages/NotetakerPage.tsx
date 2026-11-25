@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import type { CalendarEvent, Folder as FolderType, MeetingListItem, RecorderState } from '@shared/types';
 import { api, errorMessage, useEvent } from '../../lib/api';
 import { Button, ConfirmDialog, Dialog, EmptyState, IconButton, Input, Page, PageHeader, Select, Tabs, TextArea } from '../../ui';
+import { usePatchSettings, useSettings } from '../../lib/settings';
 import { toast, useHubUi } from '../state';
 import '../notetaker/notetaker.css';
 
@@ -11,6 +12,8 @@ type View = 'today' | 'past' | 'shared' | 'folders';
 
 export function NotetakerPage() {
   const openSettings = useHubUi((state) => state.openSettings);
+  const settings = useSettings();
+  const patchSettings = usePatchSettings();
   const [view, setView] = useState<View>('past');
   const [query, setQuery] = useState('');
   const [dateRange, setDateRange] = useState('any');
@@ -97,6 +100,13 @@ export function NotetakerPage() {
           }
         />
 
+        {!settings.notetaker.autoDetectCalls && (
+          <div className="recorder-banner warning">
+            <div className="nt-grow"><strong>Never miss meeting notes</strong><div>Turn meeting detection back on so Murmur can remind you when a call starts.</div></div>
+            <Button size="sm" variant="ghost" onClick={() => toast('You can turn reminders on any time in Notetaker settings.')}>Not now</Button>
+            <Button size="sm" onClick={() => void patchSettings({ notetaker: { autoDetectCalls: true } }).then(() => toast('Meeting reminders are on.', { tone: 'success' }))}>Yes, remind me</Button>
+          </div>
+        )}
         <section className="nt-schedule" aria-label="Meeting schedule">
           <div className="nt-label">Today</div>
           <div className="nt-schedule-row">

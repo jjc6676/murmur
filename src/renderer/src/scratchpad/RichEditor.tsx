@@ -111,10 +111,15 @@ export function RichEditor({ noteId, html, showFormatting = true, onChange }: Pr
     if (!file.type.startsWith('image/')) return;
     const reader = new FileReader();
     reader.onload = async () => {
-      const src = await api.notes.addImage(noteId, String(reader.result));
+      const bitmap = await createImageBitmap(file);
+      const { width, height } = bitmap;
+      const src = await api.notes.addImage(noteId, String(reader.result), { width, height, bytes: file.size });
+      bitmap.close();
       const image = document.createElement('img');
       image.src = src;
       image.alt = file.name;
+      image.width = width;
+      image.height = height;
       root.current?.append(image);
       changed();
     };

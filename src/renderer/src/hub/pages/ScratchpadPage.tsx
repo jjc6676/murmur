@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Grid2X2, List, Pin, PinOff, RefreshCw, Search, Trash2 } from 'lucide-react';
 import type { Note } from '@shared/types';
-import { api, useEvent } from '../../lib/api';
+import { api, errorMessage, useEvent } from '../../lib/api';
 import { usePatchSettings, useSettings } from '../../lib/settings';
 import { Badge, Button, ConfirmDialog, IconButton, Page, PageHeader, Toggle } from '../../ui';
+import { toast } from '../state';
 import styles from '../scratchpad/ScratchpadPage.module.css';
 
 const relative = (iso: string) => {
@@ -21,11 +22,13 @@ export function ScratchpadPage() {
   const [query, setQuery] = useState('');
   const [deleting, setDeleting] = useState<Note | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
 
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
       setNotes(await api.notes.list({ query, limit: 100 }));
+      setRefreshedAt(new Date());
     } finally {
       setRefreshing(false);
     }
@@ -56,6 +59,7 @@ export function ScratchpadPage() {
             <button className={styles.shortcut} onClick={() => void enableShortcut()}>
               {settings.shortcuts.openScratchpad[0] || 'Click to enable shortcut'}
             </button>
+            {settings.shortcuts.openScratchpad.length > 0 && <Button size="sm" variant="ghost" onClick={() => void api.settings.setShortcut('openScratchpad', [])}>Disable</Button>}
           </div>
         }
       />
@@ -77,7 +81,7 @@ export function ScratchpadPage() {
               <Search size={16} />
               <input aria-label="Search notes" placeholder="Search notes" value={query} onChange={(event) => setQuery(event.target.value)} />
             </label>
-            <IconButton label="Refresh notes" onClick={() => void load()}><RefreshCw size={17} className={refreshing ? styles.spinning : ''} /></IconButton>
+            <IconButton label="Refresh notes" title={refreshedAt ? 'Last refreshed just now' : 'Refresh notes'} onClick={() => void load()}><RefreshCw size={17} className={refreshing ? styles.spinning : ''} /></IconButton>
             <div className={styles.viewToggle}>
               <IconButton label="Grid view" aria-pressed={settings.notesViewType === 'grid'} onClick={() => void patchSettings({ notesViewType: 'grid' })}><Grid2X2 size={16} /></IconButton>
               <IconButton label="List view" aria-pressed={settings.notesViewType === 'list'} onClick={() => void patchSettings({ notesViewType: 'list' })}><List size={17} /></IconButton>
@@ -94,7 +98,9 @@ export function ScratchpadPage() {
                   <time>{relative(note.modifiedAt)}</time>
                 </button>
                 <div className={styles.noteActions}>
-                  <IconButton label={note.pinned ? `Unpin ${note.title}` : `Pin ${note.title}`} onClick={() => void api.notes.update(note.id, { pinned: !note.pinned })}>
+                  <IconButton label={note.pinned ? `Unpin ${note.title}` : `Pin ${note.title}`} onClick={() => {
+                    void api.notes.update(note.id, { pinned: !note.pinned }).catch((error) => toast('Couldn’t update pin', { body: errorMessage(error), tone: 'error' }));
+                  }}>
                     {note.pinned ? <PinOff size={15} /> : <Pin size={15} />}
                   </IconButton>
                   <IconButton label={`Delete ${note.title}`} onClick={() => setDeleting(note)}><Trash2 size={15} /></IconButton>
@@ -114,8 +120,12 @@ export function ScratchpadPage() {
         danger
         onClose={() => setDeleting(null)}
         onConfirm={() => {
-          if (deleting) void api.notes.remove(deleting.id);
+          const note = deleting;
           setDeleting(null);
+          if (!note) return;
+          void api.notes.remove(note.id)
+            .then(() => toast('Note deleted', { tone: 'success' }))
+            .catch((error) => toast('Failed to delete note', { body: errorMessage(error), tone: 'error' }));
         }}
       />
     </Page>

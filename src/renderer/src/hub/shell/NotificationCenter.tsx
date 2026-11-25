@@ -66,7 +66,7 @@ export function NotificationCenter() {
           ))}
         </div>
       ) : (
-        <EmptyState icon={<Bell size={28} />} title={filter === 'archived' ? 'No archived notifications' : 'No notifications yet'} body={filter === 'archived' ? 'Archived notifications will appear here.' : 'You’re all caught up! We’ll ping you when there’s something exciting again.'} />
+        <EmptyState icon={<Bell size={28} />} title={filter === 'archived' ? 'No archived notifications' : 'No notifications yet'} body={filter === 'archived' ? 'Archived notifications will appear here.' : 'You’ll see tips, milestones, and new feature announcements here. You’re all caught up—we’ll ping you when there’s something exciting again.'} />
       )}
     </Dialog>
   );

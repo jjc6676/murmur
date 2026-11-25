@@ -8,7 +8,7 @@ import { comboLabelParts } from '@shared/hotkeys';
 import { getCtx } from '../context';
 import { broadcast, handle } from '../ipc';
 import { newId } from '../db';
-import { runTransformText } from './transforms';
+import { isTransforming, runTransformText } from './transforms';
 import { duckMedia, unduckMedia } from './mediaDuck';
 import { paths } from '../paths';
 import { getForegroundApp, type ForegroundApp } from '../native/win32';
@@ -82,6 +82,10 @@ export function refreshAppBlockedState(): void {
 
 export function startDictation(mode: DictationMode): void {
   if (session) return;
+  if (isTransforming()) {
+    showToast({ key: 'PolishRunningWarning', title: "Can't dictate while a transform is running", target: 'bar', tone: 'warning' });
+    return;
+  }
   if (state.phase === 'processing' || state.phase === 'polish_processing') {
     showToast({ key: 'TranscriptCurrentlyProcessing', title: 'Your previous transcript is still processing', body: 'Wait a moment, then press your shortcut again.', target: 'bar', tone: 'warning' });
     return;
@@ -117,7 +121,12 @@ export function startDictation(mode: DictationMode): void {
       : Promise.resolve({ text: '', selected: '', url: null }),
     warnTimer: setTimeout(() => showToast({ key: 'DictationDurationWarning', title: 'Less than a minute left', body: 'Murmur supports up to 20 minutes per session.', target: 'bar', tone: 'warning' }), (MAX_SECONDS - 60) * 1000),
     maxTimer: setTimeout(() => {
-      showToast({ key: 'DictationMaxDurationReached', title: 'Murmur supports up to 20 minutes per session', body: 'Your text is being inserted now.', target: 'bar', tone: 'warning' });
+      showToast(
+        { key: 'DictationMaxDurationReached', title: 'Murmur supports up to 20 minutes per session', body: 'Your text is being inserted now.', target: 'bar', tone: 'warning', actions: [{ id: 'recover', label: 'Recover text' }] },
+        (action) => {
+          if (action === 'recover') broadcast('hub:navigate', { route: '/history' });
+        },
+      );
       stopDictation();
     }, MAX_SECONDS * 1000),
   };
@@ -361,7 +370,7 @@ async function processSession(s: Session): Promise<void> {
     return;
   }
   if (err === 'MicDisconnected') {
-    showToast({ key: 'MicDisconnected', title: 'Microphone disconnected', body: 'Murmur will insert what was captured before the disconnect.', target: 'bar', tone: 'warning' });
+    showToast({ key: 'TranscriptIncomplete', title: 'Part of your dictation is missing', body: 'The microphone disconnected. Murmur will insert what was captured before the disconnect.', target: 'bar', tone: 'warning' });
   }
   if (speechSeconds(pcm) < 0.15) {
     saveHistory(s, { status: 'empty', asrText: '', formattedText: '', pcm, language: 'en', latencyMs: 0, extra: activeContext });
@@ -384,7 +393,12 @@ async function processSession(s: Session): Promise<void> {
   getCtx().db.kvSet('noAudioCount', 0);
   const delayTimer = setTimeout(() => {
     if (getCtx().settings.get().notifications.processingDelay)
-      showToast({ key: 'ProcessingDelayNotification', title: 'Taking longer than usual…', body: 'Your audio is saved for retrying.', target: 'bar' });
+      showToast(
+        { key: 'ProcessingDelayNotification', title: 'Taking longer than usual…', body: 'Your audio is saved for retrying.', target: 'bar', actions: [{ id: 'disable', label: "Don't show again" }] },
+        (action) => {
+          if (action === 'disable') getCtx().settings.patch({ notifications: { processingDelay: false } });
+        },
+      );
   }, 12_000);
   try {
     let asrText: string;
@@ -542,7 +556,10 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
   setState({ lastEntryId: entry.id });
   if (voidTarget) {
     showToast({ key: 'VoidDictation', title: 'Select a textbox first, then dictate', body: finalText.slice(0, 120), target: 'bar', actions: [{ id: 'copy', label: 'Copy' }], durationMs: 10000 }, (a) => {
-      if (a === 'copy') clipboard.writeText(finalText);
+      if (a === 'copy') {
+        clipboard.writeText(finalText);
+        showToast({ key: 'VoidDictationCopied', title: 'Copied!', target: 'bar', tone: 'success', durationMs: 2000 });
+      }
     });
   } else {
     await waitForModifiersReleased((k) => getCtx().hotkeys.isHeld(k));
@@ -572,7 +589,12 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
     languageNudges(detectedLanguage, language);
   }
   if (formatted.llmError) {
-    showToast({ key: 'RawTranscript', title: 'Formatting may be missing', body: formatted.llmError.slice(0, 140), tone: 'warning', target: 'bar' });
+    showToast(
+      { key: 'RawTranscript', title: 'Formatting may be missing', body: 'Tap to retry.', tone: 'warning', target: 'bar', actions: [{ id: 'retry', label: 'Retry' }] },
+      (action) => {
+        if (action === 'retry') void retryHistory(entry.id, true);
+      },
+    );
   } else if (formatted.appliedFeatures.length) {
     const label = formatted.appliedFeatures.includes('list') ? 'Listed!' : formatted.appliedFeatures.includes('backtrack') ? 'Backtrack caught!' : 'Email formatted!';
     setState({ message: label });

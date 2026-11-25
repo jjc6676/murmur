@@ -284,7 +284,7 @@ function SystemSection({ s, patch }: SectionProps) {
       <SettingRow title="Flow Bar position"><Segmented value={s.flowBarDock} options={[{ value: 'bottom', label: 'Bottom' }, { value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }]} onChange={(flowBarDock) => void patch({ flowBarDock })} /></SettingRow>
     </SettingGroup>
     <SettingGroup title="Sound">
-      <SettingRow title="Dictation and notification sounds"><Toggle label="Sounds" checked={s.sounds} onChange={(sounds) => void patch({ sounds })} /></SettingRow>
+      <SettingRow title="Dictation and notification sounds"><Toggle label="Sounds" checked={s.sounds} onChange={(sounds) => { void patch({ sounds }); if (sounds) void api.app.playSound('start'); }} /></SettingRow>
       <SettingRow title="Mute all audio while dictating"><Toggle label="Mute audio" checked={s.muteAudioWhileDictating} onChange={(v) => exclusiveAudio('muteAudioWhileDictating', v)} /></SettingRow>
       <SettingRow title="Pause media while dictating" description="Experimental"><Toggle label="Pause media" checked={s.pauseMediaWhileDictating} onChange={(v) => exclusiveAudio('pauseMediaWhileDictating', v)} /></SettingRow>
     </SettingGroup>

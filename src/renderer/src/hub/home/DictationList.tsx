@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import type { HistoryEntry } from '@shared/types';
 import { Archive, Copy, Download, MessageSquare, MoreHorizontal, Pause, Play, RefreshCw, RotateCcw, RotateCw, ScanText, Trash2 } from 'lucide-react';
-import { api, errorMessage } from '../../lib/api';
+import { api, errorMessage, useEvent } from '../../lib/api';
 import { Button, ConfirmDialog, Dialog, Field, IconButton, Menu, TextArea } from '../../ui';
 import { toast } from '../state';
+import { useSettings } from '../../lib/settings';
 import s from './Home.module.css';
 
 const dayKey = (timestamp: string): string => {
   const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return 'Unknown date';
   const today = new Date();
   const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
   if (date.toDateString() === today.toDateString()) return 'Today';
@@ -23,6 +25,9 @@ function displayText(entry: HistoryEntry): string {
 }
 
 function DictationRow({ entry, onChanged }: { entry: HistoryEntry; onChanged: () => void }) {
+  const settings = useSettings();
+  const [dictating, setDictating] = useState(false);
+  useEvent('dictation:state', (state) => setDictating(!['hidden', 'resting', 'completed', 'error'].includes(state.phase)));
   const [deleting, setDeleting] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
@@ -42,7 +47,8 @@ function DictationRow({ entry, onChanged }: { entry: HistoryEntry; onChanged: ()
     if (!text) return toast('Nothing to copy', { tone: 'warning' });
     try {
       await navigator.clipboard.writeText(text);
-      toast('Transcript copied', { tone: 'success' });
+      const pasteShortcut = settings.shortcuts.pasteLast[0];
+      toast('Transcript copied', { body: pasteShortcut ? `You can also paste your last transcript with ${pasteShortcut}.` : undefined, tone: 'success' });
     } catch (error) {
       toast('Couldn’t copy transcript', { body: errorMessage(error), tone: 'error' });
     }
@@ -96,7 +102,7 @@ function DictationRow({ entry, onChanged }: { entry: HistoryEntry; onChanged: ()
   };
   return (
     <article className={s.dictationRow} data-status={entry.status}>
-      <time className={s.dictationTime}>{new Date(entry.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time>
+      <time className={s.dictationTime}>{Number.isFinite(new Date(entry.timestamp).getTime()) ? new Date(entry.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '12:00 AM'}</time>
       <div className={s.dictationBody}>
         <p className={s.transcript}>{displayText(entry)}</p>
         <span className={s.appLabel}>{entry.appTitle || entry.app || 'Unknown app'}{entry.isArchived ? ' · Archived' : ''}</span>
@@ -105,7 +111,7 @@ function DictationRow({ entry, onChanged }: { entry: HistoryEntry; onChanged: ()
         <IconButton label="Copy transcript" onClick={() => void copy()}><Copy size={16} /></IconButton>
         {entry.hasAudio && <IconButton label={playing ? 'Pause audio' : 'Play audio'} onClick={() => void toggleAudio()}>{playing ? <Pause size={16} /> : <Play size={16} />}</IconButton>}
         {(entry.hasAudio || entry.status === 'failed' || entry.status === 'cancelled' || entry.status === 'void') && (
-          <Button size="sm" variant="ghost" icon={<RefreshCw size={14} />} onClick={() => void retry()}>{entry.status === 'cancelled' || entry.status === 'void' ? 'Recover' : 'Retry'}</Button>
+          <Button size="sm" variant="ghost" icon={<RefreshCw size={14} />} disabled={dictating} title={dictating ? 'Finish dictating before retrying a transcript' : undefined} onClick={() => void retry()}>{entry.status === 'cancelled' || entry.status === 'void' ? 'Recover' : `Retry · ${entry.duration < 60 ? `${Math.max(1, Math.ceil(entry.duration))} sec` : `${Math.ceil(entry.duration / 60)} min`}`}</Button>
         )}
         <Menu
           trigger={(props) => <IconButton label="More actions" {...props}><MoreHorizontal size={16} /></IconButton>}

@@ -129,7 +129,7 @@ export interface NotesApi {
   sendToApp(noteId: string): { app: string } | null;
   sendTarget(): string | null;
   openScratchpad(noteId?: string): void;
-  addImage(noteId: string, dataUrl: string): string; // returns murmur-image:// url
+  addImage(noteId: string, dataUrl: string, metadata?: { width: number; height: number; bytes: number }): string; // returns murmur-image:// url
 }
 
 export interface TodosApi {
@@ -221,6 +221,9 @@ export interface SkillsApi {
   remove(id: string): void;
   /** Run a skill over one or more meetings (or recent meetings when empty); returns markdown output. */
   run(skillId: string, meetingIds: string[]): string;
+  /** Ask a free-form question over recent local meetings. */
+  ask(requestId: string, query: string): string;
+  cancelAsk(requestId: string): void;
 }
 
 export interface MemoryApi {
@@ -232,6 +235,7 @@ export interface MemoryApi {
   save(id: string, content: string): MemoryDoc;
   search(query: string): { docId: string; title: string; line: number; text: string }[];
   addFact(text: string, source: string): MemoryDoc;
+  removeFact(text: string): MemoryDoc | null;
   runDreamer(): MemoryStatus;
   events(): MemoryEvent[];
   people(): MemoryPerson[];

@@ -205,6 +205,24 @@ export function registerMemory(): void {
       const row = db.get<MemoryRow>("SELECT * FROM memory_docs WHERE folder = 'knowledge' AND title = 'Saved facts'")!;
       return rowToDoc(row);
     },
+    removeFact(text) {
+      const clean = text.trim();
+      const existing = db.get<MemoryRow>("SELECT * FROM memory_docs WHERE folder = 'knowledge' AND title = 'Saved facts'");
+      if (!existing || !clean) return existing ? rowToDoc(existing) : null;
+      const versions = rowToDoc(existing).versions;
+      const line = `- ${clean}`;
+      const content = existing.content.split(/\r?\n/).filter((item) => item.trim() !== line).join('\n');
+      if (content === existing.content) return rowToDoc(existing);
+      versions.unshift({ content: existing.content, modifiedAt: existing.modifiedAt, changedBy: existing.changedBy });
+      db.update('memory_docs', existing.id, {
+        content,
+        changedBy: 'user',
+        versions: JSON.stringify(versions.slice(0, 20)),
+        modifiedAt: nowIso(),
+      });
+      addEvent('Ask', 'Removed a fact', 'Changed memory', clean);
+      return rowToDoc(db.get<MemoryRow>('SELECT * FROM memory_docs WHERE id = ?', existing.id)!);
+    },
     events: () => db.all<{ id: string; source: string; title: string; detail: string; status: string; createdAt: string }>('SELECT * FROM memory_events ORDER BY createdAt DESC LIMIT 500'),
     people() {
       const meetings = db.all<{ id: string; createdAt: string; durationSec: number; transcript: string }>('SELECT id, createdAt, durationSec, transcript FROM meetings WHERE isDeleted = 0');

@@ -108,6 +108,10 @@ test('guards active recording lifecycle and preserves transcript corrections', a
   const corrected = await invoke<{ transcript: { text: string; edited: boolean }[] }>(hub, 'meetings:correctSegment', imported[0].id, segment.id, segment.text, 'The project deadline is Monday.');
   expect(corrected.transcript[0]).toMatchObject({ text: 'The project deadline is Monday.', edited: true });
   const reverted = await invoke<{ transcript: { text: string; edited: boolean }[] }>(hub, 'meetings:revertSegment', imported[0].id, segment.id);
+  const firstCatchUp = await invoke<{ content: string }[]>(hub, 'meetings:chat', imported[0].id, 'What did I miss?');
+  expect(firstCatchUp.at(-1)?.content).toContain('[ai]');
+  const secondCatchUp = await invoke<{ content: string }[]>(hub, 'meetings:chat', imported[0].id, 'What did I miss?');
+  expect(secondCatchUp.at(-1)?.content).toBe('Nothing new since you last looked.');
   expect(reverted.transcript[0]).toMatchObject({ text: segment.text, edited: false });
 
   expect(active.meetingId).toBeTruthy();

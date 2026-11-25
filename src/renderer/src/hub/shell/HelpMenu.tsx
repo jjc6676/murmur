@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { BookOpen, Command, Languages, LifeBuoy, Megaphone, Mic, Newspaper } from 'lucide-react';
+import { BookOpen, Command, Languages, LifeBuoy, Megaphone, Mic, Newspaper, Smartphone } from 'lucide-react';
 import { Button, Dialog, Field, Input, Menu, TextArea } from '../../ui';
 import { api } from '../../lib/api';
 import { toast, useHubUi } from '../state';
@@ -34,6 +34,7 @@ export function HelpMenu({ trigger }: { trigger: (p: { onClick: (e: React.MouseE
           { label: 'Shortcuts', icon: <Command size={16} />, onSelect: () => openSettings('shortcuts') },
           { label: 'Microphone', icon: <Mic size={16} />, onSelect: () => openSettings('general') },
           { label: 'Languages', icon: <Languages size={16} />, onSelect: () => openSettings('general') },
+          { label: 'Try the mobile app', icon: <Smartphone size={16} />, onSelect: () => toast('Mobile app unavailable', { body: 'Murmur is an offline Windows desktop app.', tone: 'info' }) },
           { separator: true, label: '' },
           { label: 'What’s New', icon: <Newspaper size={16} />, onSelect: () => setChangelog(true) },
           { separator: true, label: '' },

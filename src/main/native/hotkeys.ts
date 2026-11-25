@@ -46,7 +46,12 @@ export class HotkeyManager extends EventEmitter<Events> {
     uIOhook.on('keydown', (e) => this.onKey(e, true));
     uIOhook.on('keyup', (e) => this.onKey(e, false));
     uIOhook.on('mousedown', (e) => {
-      if (typeof e.button === 'number' && e.button > 3) this.emit('mouse', e.button);
+      if (typeof e.button !== 'number' || e.button <= 3) return;
+      this.emit('mouse', e.button);
+      this.onInput(`Mouse ${e.button}`, true);
+    });
+    uIOhook.on('mouseup', (e) => {
+      if (typeof e.button === 'number' && e.button > 3) this.onInput(`Mouse ${e.button}`, false);
     });
     uIOhook.start();
   }
@@ -77,16 +82,20 @@ export class HotkeyManager extends EventEmitter<Events> {
   private onKey(e: UiohookKeyboardEvent, down: boolean): void {
     const id = CODE_TO_ID.get(e.keycode);
     if (!id) return;
+    this.emit('key', id, down);
+    this.onInput(id, down);
+  }
+
+  private onInput(id: KeyId, down: boolean): void {
     if (down) {
-      if (this.held.has(id)) return; // auto-repeat
+      if (this.held.has(id)) return;
       this.held.add(id);
     } else {
       this.held.delete(id);
     }
-    this.emit('key', id, down);
 
     if (this.recording) {
-      if (down) for (const k of this.held) this.recordPeak.add(k);
+      if (down) for (const key of this.held) this.recordPeak.add(key);
       else if (this.held.size === 0 && this.recordPeak.size > 0) {
         const done = this.recording;
         this.recording = null;
@@ -95,30 +104,27 @@ export class HotkeyManager extends EventEmitter<Events> {
       return;
     }
 
-    // Release: end any active binding that lost a key.
-    for (const b of this.bindings) {
-      if (this.active.has(b.id) && !b.keys.every((k) => this.held.has(k))) {
-        this.active.delete(b.id);
-        this.emit('up', b.id);
+    for (const binding of this.bindings) {
+      if (this.active.has(binding.id) && !binding.keys.every((key) => this.held.has(key))) {
+        this.active.delete(binding.id);
+        this.emit('up', binding.id);
       }
     }
     if (!down) return;
-    // Press: the longest binding exactly covered by the held set activates.
-    for (const b of this.bindings) {
-      if (this.active.has(b.id)) continue;
-      if (b.keys.length !== this.held.size || !b.keys.every((k) => this.held.has(k))) continue;
-      // a longer active binding already owns these keys
-      if ([...this.active].some((a) => this.bindings.find((x) => x.id === a)!.keys.length > b.keys.length)) continue;
-      for (const a of [...this.active]) {
-        this.active.delete(a);
-        this.emit('up', a);
+    for (const binding of this.bindings) {
+      if (this.active.has(binding.id)) continue;
+      if (binding.keys.length !== this.held.size || !binding.keys.every((key) => this.held.has(key))) continue;
+      if ([...this.active].some((activeId) => this.bindings.find((candidate) => candidate.id === activeId)!.keys.length > binding.keys.length)) continue;
+      for (const activeId of [...this.active]) {
+        this.active.delete(activeId);
+        this.emit('up', activeId);
       }
-      this.active.add(b.id);
-      if (b.keys.includes('Win')) {
+      this.active.add(binding.id);
+      if (binding.keys.includes('Win')) {
         keyDown(MENU_MASK_VK);
         keyUp(MENU_MASK_VK);
       }
-      this.emit('down', b.id);
+      this.emit('down', binding.id);
       break;
     }
   }

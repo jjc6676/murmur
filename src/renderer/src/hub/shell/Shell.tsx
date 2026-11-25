@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { api, useEvent } from '../../lib/api';
 import { usePatchSettings, useSettings } from '../../lib/settings';
-import { CountBadge, IconButton, cx } from '../../ui';
+import { Badge, CountBadge, IconButton, cx } from '../../ui';
 import { toast, useHubUi } from '../state';
 import { Logo } from './Logo';
 import { AccountMenu } from './AccountMenu';
@@ -127,9 +127,20 @@ export function Shell({ children }: { children: ReactNode }) {
         <div className={s.sidebarScroll}>
         <nav aria-label="Main navigation" className={s.nav}>
           {NAV.map((n) => (
-            <NavLink key={n.label} to={n.to} end={n.to === '/'} className={({ isActive }) => cx(s.navItem, (isActive || (n.to === '/notetaker' && location.pathname.startsWith('/notetaker'))) && s.navActive)}>
+            <NavLink
+              key={n.label}
+              to={n.to}
+              end={n.to === '/'}
+              onClick={() => {
+                if (n.label === 'Insights' && !settings.nudges['insights-nav']) {
+                  void patch({ nudges: { 'insights-nav': { lastShown: Date.now(), count: 1 } } });
+                }
+              }}
+              className={({ isActive }) => cx(s.navItem, (isActive || (n.to === '/notetaker' && location.pathname.startsWith('/notetaker'))) && s.navActive)}
+            >
               {n.icon}
               <span>{n.label}</span>
+              {n.label === 'Insights' && !settings.nudges['insights-nav'] && <span aria-hidden="true"><Badge tone="accent">NEW</Badge></span>}
             </NavLink>
           ))}
           <button type="button" className={s.navItem} onClick={() => toast('Murmur runs fully offline', { body: 'Online account extensions are not available.', tone: 'info' })}>

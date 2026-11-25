@@ -1,5 +1,5 @@
 // System tray icon and menu.
-import { app, dialog, Menu, nativeImage, Tray } from 'electron';
+import { app, dialog, Menu, nativeImage, shell, Tray } from 'electron';
 import { join } from 'node:path';
 import type { CalendarEvent } from '@shared/types';
 import { getCtx } from './context';
@@ -45,10 +45,28 @@ function openSettings(section: string): void {
   broadcast('settings:open', { section });
 }
 
+function meetingTimeLabel(event: CalendarEvent): string {
+  const start = new Date(event.start);
+  const now = new Date();
+  if (start.getTime() <= now.getTime() && new Date(event.end).getTime() > now.getTime()) return 'Now';
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  const day = start.toDateString() === now.toDateString()
+    ? 'Today'
+    : start.toDateString() === tomorrow.toDateString()
+      ? 'Tomorrow'
+      : start.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return `${day}, ${start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+}
+
 function buildMenu(): Menu {
   const { db, settings } = getCtx();
   const counts = db.get<{ w: number; s: number }>('SELECT SUM(isSnippet = 0) AS w, SUM(isSnippet = 1) AS s FROM dictionary');
   const recent = db.all<{ id: string; title: string }>('SELECT id, title FROM meetings WHERE isDeleted = 0 ORDER BY createdAt DESC LIMIT 5');
+  const now = Date.now();
+  const upcoming = db.kvGet<CalendarEvent[]>('notetaker.calendar', [])
+    .filter((event) => new Date(event.end).getTime() > now)
+    .slice(0, 5);
   return Menu.buildFromTemplate([
     { label: 'Open Murmur', click: () => ensureHub(true) },
     { type: 'separator' },
@@ -58,6 +76,21 @@ function buildMenu(): Menu {
     { type: 'separator' },
     { label: 'Start Notetaker', click: () => void toggleRecording() },
     { label: 'Open Notetaker', click: () => ensureRecorder(true) },
+    {
+      label: 'Upcoming meetings',
+      submenu: upcoming.length
+        ? [
+            ...upcoming.map((event) => ({
+              label: `${event.title} — ${meetingTimeLabel(event)}`,
+              click: () => event.conferenceUrl
+                ? void shell.openExternal(event.conferenceUrl)
+                : openHubAt('/notetaker'),
+            })),
+            { type: 'separator' as const },
+            { label: 'See all upcoming meetings', click: () => openHubAt('/notetaker') },
+          ]
+        : [{ label: 'No upcoming meetings', enabled: false }],
+    },
     {
       label: 'Past notes',
       submenu: recent.length
@@ -82,6 +115,16 @@ function buildMenu(): Menu {
     { type: 'separator' },
     { label: 'Share feedback', click: () => void dialog.showMessageBox({ type: 'info', title: 'Share feedback', message: 'Murmur runs fully offline.', detail: 'Feedback, Help Center, and support links are unavailable in this offline build.' }) },
     { label: 'Help and support', click: () => void dialog.showMessageBox({ type: 'info', title: 'Help and support', message: 'Murmur runs fully offline.', detail: 'Use the in-app tutorials and local settings for help.' }) },
+    {
+      label: 'View',
+      submenu: [
+        { label: 'Actual size', role: 'resetZoom' },
+        { label: 'Zoom in', role: 'zoomIn' },
+        { label: 'Zoom out', role: 'zoomOut' },
+      ],
+    },
+    { label: 'Hide Murmur', role: 'hide' },
+    { label: 'Close window', role: 'close' },
     { label: 'Check for updates', click: () => void dialog.showMessageBox({ type: 'info', title: 'Murmur updates', message: `Updates are installed manually — you're on v${app.getVersion()}.` }) },
     { type: 'separator' },
     { label: `About Murmur ${app.getVersion()}`, role: 'about' },

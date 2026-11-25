@@ -55,18 +55,18 @@ function saveRun(r: Omit<TransformRun, 'id' | 'createdAt'>): TransformRun {
 
 async function execute(transformId: string, input: string, app: string, instruction?: string): Promise<TransformRun> {
   const t0 = Date.now();
-  running = new AbortController();
+  const controller = new AbortController();
+  running = controller;
   try {
-    const out = await runTransformText(transformId, input, instruction, running.signal);
+    const out = await runTransformText(transformId, input, instruction, controller.signal);
     if (!out) return saveRun({ transformId, inputText: input, outputText: '', app, status: 'failed', processingMs: Date.now() - t0, error: 'Transform returned no text' });
     const status = out.trim() === input.trim() ? 'no_change' : 'success';
     return saveRun({ transformId, inputText: input, outputText: out, app, status, processingMs: Date.now() - t0, error: null });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const cancelled = running?.signal.aborted ?? false;
-    return saveRun({ transformId, inputText: input, outputText: '', app, status: cancelled ? 'cancelled' : 'failed', processingMs: Date.now() - t0, error: msg });
+    return saveRun({ transformId, inputText: input, outputText: '', app, status: controller.signal.aborted ? 'cancelled' : 'failed', processingMs: Date.now() - t0, error: msg });
   } finally {
-    running = null;
+    if (running === controller) running = null;
   }
 }
 

@@ -3,7 +3,7 @@ import type { AppCategory, MeetingAnalytics, Stats, VoiceProfile } from '@shared
 import { CATEGORY_LABELS, appDisplayName } from '@shared/apps';
 import { LockKeyhole, Share2, ShieldCheck, Sparkles } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
-import { Button, Card, Page, PageHeader, Progress, Tabs } from '../../ui';
+import { Button, Card, EmptyState, Page, PageHeader, Progress, Tabs } from '../../ui';
 import { toast } from '../state';
 import s from '../insights/Insights.module.css';
 
@@ -61,14 +61,17 @@ async function copyStatsImage(stats: Stats): Promise<void> {
 }
 
 function UsageView({ stats, analytics }: { stats: Stats; analytics: MeetingAnalytics | null }) {
+  const [heatmapPage, setHeatmapPage] = useState(0);
   const total = Math.max(1, stats.totalWords);
   const monthDelta = stats.wordsLastMonthToDate ? Math.round(((stats.wordsThisMonth - stats.wordsLastMonthToDate) / stats.wordsLastMonthToDate) * 100) : 100;
   const maxHeat = Math.max(1, ...stats.heatmap.map((day) => day.words));
   const percentile = TYPING_PERCENTILES.find((item) => stats.averageWpm >= item.wpm);
   const intensity = stats.wordsThisWeek >= 5_000 ? 'Power' : stats.wordsThisWeek >= 1_000 ? 'Moderate' : 'Light';
-  const recentHeatmap = stats.heatmap.slice(-182);
+  const heatmapEnd = stats.heatmap.length - heatmapPage * 182;
+  const recentHeatmap = stats.heatmap.slice(Math.max(0, heatmapEnd - 182), heatmapEnd);
   return (
     <div className={s.grid}>
+      {stats.totalWords === 0 && <Card padded className={`${s.card} ${s.wide}`}><h2>You’ve written nothing yet—start dictating!</h2></Card>}
       <Card padded className={s.card}>
         <h2>Words per minute</h2>
         <div className={s.split}>
@@ -91,7 +94,8 @@ function UsageView({ stats, analytics }: { stats: Stats; analytics: MeetingAnaly
       </Card>
       <Card padded className={`${s.card} ${s.wide}`}>
         <h2>Desktop usage by category</h2>
-        <p className={s.secondary}>Total apps used · {stats.appsUsed.length}{stats.appsUsed[0] ? ` · Most used: ${appDisplayName(stats.appsUsed[0].app)}` : ''}</p>
+        <p className={s.secondary}>Total apps used · {stats.appsUsed.length}{stats.appsUsed[0] ? ` · Most used: ${appDisplayName(stats.appsUsed[0].app)} — this is where your ideas come to life.` : ''}</p>
+        <p className={s.secondary}>{stats.appsUsed.length >= 10 ? 'Always in a Murmur state.' : stats.appsUsed.length >= 3 ? 'Your voice is finding more places to work.' : 'Try Murmur in another app.'}</p>
         {CATEGORY_ORDER.map((category) => {
           const words = stats.categoryWords[category];
           const percent = Math.round((words / total) * 100);
@@ -101,8 +105,14 @@ function UsageView({ stats, analytics }: { stats: Stats; analytics: MeetingAnaly
       <Card padded className={`${s.card} ${s.wide}`}>
         <h2>{stats.dayStreak} day streak</h2>
         <p className={s.secondary}>Longest streak · {stats.longestDayStreak} days</p>
+        <div className={s.legend}>
+          <Button size="sm" variant="ghost" disabled={heatmapEnd <= 182} onClick={() => setHeatmapPage((page) => page + 1)}>Earlier</Button>
+          <span>{recentHeatmap[0] ? new Date(`${recentHeatmap[0].date}T12:00:00`).toLocaleDateString(undefined, { month: 'short' }) : ''} – {recentHeatmap.at(-1) ? new Date(`${recentHeatmap.at(-1)!.date}T12:00:00`).toLocaleDateString(undefined, { month: 'short' }) : ''}</span>
+          <Button size="sm" variant="ghost" disabled={heatmapPage === 0} onClick={() => setHeatmapPage((page) => Math.max(0, page - 1))}>Later</Button>
+        </div>
+        <p className={s.secondary}>Mon · Wed · Fri</p>
         <div className={s.heatmap} aria-label="Activity heatmap">
-          {recentHeatmap.map((day) => <span key={day.date} className={s.heat} data-level={day.words ? Math.max(1, Math.ceil((day.words / maxHeat) * 4)) : 0} title={`${day.date}: ${day.words} words${day.topApp ? ` · ${appDisplayName(day.topApp)}` : ''}`} />)}
+          {recentHeatmap.map((day) => <span key={day.date} className={s.heat} data-level={day.words ? Math.max(1, Math.ceil((day.words / maxHeat) * 4)) : 0} title={`${day.date}: ${day.words} words · ${day.apps} apps${day.topApp ? ` · Top app: ${appDisplayName(day.topApp)}` : ''}`} />)}
         </div>
         <div className={s.legend}><span>Less</span>{[0, 1, 2, 3, 4].map((level) => <span key={level} className={s.heat} data-level={level} />)}<span>More</span></div>
         <p>{streakCopy(stats.dayStreak, stats.weekStreak)}</p>
@@ -160,6 +170,7 @@ function VoiceView({ stats, profile, onGenerated }: { stats: Stats; profile: Voi
         <strong>{profile.persona}</strong>
         <div className={s.personaTags} aria-label="Persona vocabulary">{['analysis', 'brainstorm', 'coding', 'collaboration', 'deep thought', 'leadership', 'long writing', 'multilingual', 'on-the-go', 'presenting', 'reporting', 'support'].map((label) => <span key={label}>{label}</span>)}</div>
         <p>{profile.summary}</p>
+        <p className={s.secondary}>Created {profile.generatedAt ? new Date(profile.generatedAt).toLocaleDateString() : 'locally'}</p>
         <Button variant="outline" loading={building} onClick={() => void generate()}>Regenerate profile</Button>
       </Card>
       <div className={`${s.voiceFacts} ${s.wide}`}>
@@ -171,7 +182,7 @@ function VoiceView({ stats, profile, onGenerated }: { stats: Stats; profile: Voi
 }
 
 export function InsightsPage() {
-  const [tab, setTab] = useState<'usage' | 'voice'>('usage');
+  const [tab, setTab] = useState<'flow' | 'usage' | 'voice' | 'leaderboard'>('flow');
   const [stats, setStats] = useState<Stats | null>(null);
   const [profile, setProfile] = useState<VoiceProfile | null>(null);
   const [analytics, setAnalytics] = useState<MeetingAnalytics | null>(null);
@@ -196,8 +207,12 @@ export function InsightsPage() {
       <div className={s.page}>
         <PageHeader title="Insights" actions={<Button variant="outline" icon={<Share2 size={16} />} disabled={!stats} onClick={() => void share()}>Share</Button>} />
         <section className={s.snapshot}><strong>You’ve been Murmuring. Hard.</strong><span>Your voice has turned {format(stats?.totalWords ?? 0)} words into momentum.</span></section>
-        <Tabs value={tab} onChange={setTab} tabs={[{ id: 'usage', label: 'Your usage' }, { id: 'voice', label: 'Your voice' }]} />
-        {stats && profile && (tab === 'usage' ? <UsageView stats={stats} analytics={analytics} /> : <VoiceView stats={stats} profile={profile} onGenerated={setProfile} />)}
+        <Tabs value={tab} onChange={setTab} tabs={[{ id: 'flow', label: 'Your Flow' }, { id: 'usage', label: 'Your usage' }, { id: 'voice', label: 'Your voice' }, { id: 'leaderboard', label: 'Leaderboard' }]} />
+        {stats && profile && (tab === 'leaderboard'
+          ? <EmptyState title="Team leaderboard isn’t available offline" body="Murmur has no hosted team account. Your private usage and voice insights remain available on this device." />
+          : tab === 'voice'
+            ? <VoiceView stats={stats} profile={profile} onGenerated={setProfile} />
+            : <UsageView stats={stats} analytics={analytics} />)}
       </div>
     </Page>
   );

@@ -245,7 +245,14 @@ export function registerMeetings(): void {
         if (skill) instruction = skill.instructions;
       }
       const context = `${meeting.summary ? JSON.stringify(meeting.summary) : ''}\n${meeting.transcript.map((segment) => `${segment.speakerName}: ${segment.text}`).join('\n')}`;
-      const answer = await getCtx().llm({ system: instruction, input: `${context}\n\nQuestion: ${trimmed}` });
+      const catchUpKey = `notetaker.catchUp.${id}`;
+      const contextDigest = createHash('sha256').update(context).digest('hex');
+      const isCatchUp = /^what did i miss[?!.]*$/i.test(trimmed);
+      const previousDigest = isCatchUp ? getCtx().db.kvGet<string | null>(catchUpKey, null) : null;
+      if (isCatchUp) getCtx().db.kvSet(catchUpKey, contextDigest);
+      const answer = isCatchUp && previousDigest === contextDigest
+        ? 'Nothing new since you last looked.'
+        : await getCtx().llm({ system: instruction, input: `${context}\n\nQuestion: ${trimmed}` });
       const assistant: MeetingChatMessage = { id: newId(), chatId: id, role: 'assistant', content: answer, status: 'done', createdAt: nowIso() };
       getCtx().db.insert('meeting_chat', { id: assistant.id, meetingId: id, role: assistant.role, content: assistant.content, status: assistant.status, createdAt: assistant.createdAt });
       return [user, assistant];

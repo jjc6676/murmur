@@ -234,14 +234,23 @@ export function registerNotes(): void {
     },
     sendTarget: () => pasteTarget?.processName || pasteTarget?.title || null,
     openScratchpad,
-    addImage(noteId, dataUrl) {
+    addImage(noteId, dataUrl, metadata) {
       getNote(noteId);
       const match = /^data:(image\/(?:png|jpeg|gif|webp));base64,([A-Za-z0-9+/=\s]+)$/.exec(dataUrl);
       if (!match) throw new Error('Unsupported image');
       const data = Buffer.from(match[2], 'base64');
       if (!data.length || data.length > 15 * 1024 * 1024) throw new Error('Image must be smaller than 15 MB');
       const id = newId();
-      getCtx().db.insert('note_images', { id, noteId, data, contentType: match[1], createdAt: nowIso() });
+      getCtx().db.insert('note_images', {
+        id,
+        noteId,
+        data,
+        contentType: match[1],
+        width: Math.max(0, Math.round(metadata?.width ?? 0)),
+        height: Math.max(0, Math.round(metadata?.height ?? 0)),
+        bytes: data.length,
+        createdAt: nowIso(),
+      });
       broadcast('notes:changed', { id: noteId });
       return `murmur-image://${id}`;
     },

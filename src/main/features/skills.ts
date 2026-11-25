@@ -63,6 +63,8 @@ function parseTranscript(value: string): TranscriptSegment[] {
     return [];
   }
 }
+const askControllers = new Map<string, AbortController>();
+
 
 
 export function registerSkills(): void {
@@ -124,6 +126,33 @@ export function registerSkills(): void {
         system: `Follow this meeting skill exactly and return polished Markdown only.\n\n${skill.instructions}`,
         input,
       });
+    },
+    async ask(requestId, query) {
+      const clean = query.trim();
+      if (!clean) throw new Error('Ask a question first');
+      const controller = new AbortController();
+      askControllers.get(requestId)?.abort();
+      askControllers.set(requestId, controller);
+      try {
+        const meetings = db.all<{ title: string; transcript: string; summary: string | null }>(
+          'SELECT title, transcript, summary FROM meetings WHERE isDeleted = 0 ORDER BY createdAt DESC LIMIT 20',
+        );
+        const context = meetings.map((meeting) => {
+          const spoken = parseTranscript(meeting.transcript).map((segment) => `${segment.speaker ?? 'Speaker'}: ${segment.text}`).join('\n');
+          return `# ${meeting.title}\n${meeting.summary ?? ''}\n${spoken}`;
+        }).join('\n\n').slice(0, 60_000);
+        return await getCtx().llm({
+          system: 'Answer the question using only the supplied local meeting context. If the answer is not present, say so. Return concise Markdown.',
+          input: `Question: ${clean}\n\n<meetings>\n${context || 'No local meetings are available.'}\n</meetings>`,
+          signal: controller.signal,
+        });
+      } finally {
+        if (askControllers.get(requestId) === controller) askControllers.delete(requestId);
+      }
+    },
+    cancelAsk(requestId) {
+      askControllers.get(requestId)?.abort();
+      askControllers.delete(requestId);
     },
   });
 }

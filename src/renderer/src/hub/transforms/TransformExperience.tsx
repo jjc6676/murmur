@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Check, Plus, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
-import { POLISH_RULES } from '@shared/settings';
+import { BUILT_IN_TRANSFORMS, POLISH_RULES } from '@shared/settings';
 import type { TransformDef, TransformRun } from '@shared/types';
 import { countWords } from '@shared/textPipeline';
 import { validateCombo } from '@shared/hotkeys';
@@ -18,8 +18,19 @@ export function TransformExperience() {
   const [tryOpen, setTryOpen] = useState(false);
   const [reset, setReset] = useState(false);
   async function resetDefaults() { await api.transforms.resetDefaults(); toast('Transforms reset to defaults', { tone: 'success' }); }
+  async function setEnabled(enabled: boolean) {
+    if (enabled) {
+      await patch({ transformsEnabled: true });
+      return;
+    }
+    const defaults = new Map(BUILT_IN_TRANSFORMS.map((transform) => [transform.id, transform.shortcut]));
+    await patch({
+      transformsEnabled: false,
+      transforms: settings.transforms.map((transform) => ({ ...transform, shortcut: defaults.get(transform.id) ?? null })),
+    });
+  }
   return <Page wide>
-    <PageHeader title="Transforms" badge={<Badge tone="dark">Beta</Badge>} actions={<div className={styles.headerControls}><span>Opt in</span><Toggle label="Opt in to Transforms" checked={settings.transformsEnabled} onChange={(checked) => void patch({ transformsEnabled: checked })} /><div className={styles.shortcutPill}><Kbd combo={settings.shortcuts.viewDiff[0] || 'Win+Alt+O'} /> <span>to view changes</span></div></div>} />
+    <PageHeader title="Transforms" badge={<Badge tone="dark">Beta</Badge>} actions={<div className={styles.headerControls}><span>Opt in</span><Toggle label="Opt in to Transforms" checked={settings.transformsEnabled} onChange={(checked) => void setEnabled(checked)} /><div className={styles.shortcutPill}><Kbd combo={settings.shortcuts.viewDiff[0] || 'Win+Alt+O'} /> <span>to view changes</span></div></div>} />
     <div className={styles.hero}><Banner variant="teal" art={<div className={styles.heroArt} />} title="Transform works anywhere you write" body="Apply a Transform to rewrite, clean up, or restructure text after you dictate." actions={<><Button variant="light" onClick={() => setTryOpen(true)}>Try it out</Button><Button variant="ghost" onClick={() => setHow(true)}>How it works</Button></>} /></div>
     <div className={styles.autoRow}><div><strong>Auto Apply After Dictation</strong><div className="m-field__hint">Run a transform on everything you dictate, automatically.</div></div><div className={styles.autoControls}><Select ariaLabel="Auto apply transform" disabled={!settings.autoApplyAfterDictation.active} value={settings.autoApplyAfterDictation.transformId} options={settings.transforms.map((t) => ({ value: t.id, label: t.name }))} onChange={(transformId) => void patch({ autoApplyAfterDictation: { transformId } })} /><Toggle label="Auto Apply After Dictation" checked={settings.autoApplyAfterDictation.active} onChange={(active) => void patch({ autoApplyAfterDictation: { active } })} /></div></div>
     <div className={styles.sectionHead}><h2>My Transforms</h2><div><Button variant="ghost" icon={<RotateCcw size={16} />} onClick={() => setReset(true)}>Reset to defaults</Button><Button onClick={() => setEditor('new')}>Create New</Button></div></div>

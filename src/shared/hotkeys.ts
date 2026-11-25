@@ -48,6 +48,8 @@ export function normalizeKeyId(name: string): KeyId | null {
   if (/^f([1-9]|1[0-9]|2[0-4])$/i.test(t)) return t.toUpperCase();
   if (['pageup', 'pagedown', 'home', 'end', 'insert', 'delete', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(lower))
     return t[0].toUpperCase() + t.slice(1);
+  if (/^mouse\s*(?:[4-9]|10)$/i.test(t)) return `Mouse ${t.match(/\d+/)![0]}`;
+  if (/^aux(?:iliary)?\s*button$/i.test(t)) return 'Aux Button';
   return null;
 }
 
@@ -76,7 +78,7 @@ export function comboLabelParts(combo: string): string[] {
 }
 
 const MODIFIERS = ['Ctrl', 'Win', 'Alt', 'Shift'];
-const STANDALONE_OK = /^(CapsLock|F([1-9]|1[0-9]|2[0-4])|Esc)$/;
+const STANDALONE_OK = /^(CapsLock|F([1-9]|1[0-9]|2[0-4])|Esc|Mouse (?:[4-9]|10)|Aux Button)$/;
 
 /**
  * Validate a combo for an action. Returns an error message or null.

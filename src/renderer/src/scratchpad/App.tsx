@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronRight, Clock3, Copy, Eye, History, Maximize2, Minimize2, PanelLeftClose, PanelLeftOpen, Pilcrow, Pin, PinOff, Plus, RefreshCw, Send, Sparkles, Trash2, X } from 'lucide-react';
 import type { Note, NoteVersion } from '@shared/types';
-import { api, useEvent } from '../lib/api';
+import { api, errorMessage, useEvent } from '../lib/api';
 import { useSettings } from '../lib/settings';
 import { ConfirmDialog, Kbd } from '../ui';
 import { RichEditor } from './RichEditor';
@@ -19,11 +19,13 @@ export function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [search, setSearch] = useState('');
+  const [noteLimit, setNoteLimit] = useState(30);
   const [sidebar, setSidebar] = useState(false);
   const [compact, setCompact] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [transformOpen, setTransformOpen] = useState(false);
   const [versions, setVersions] = useState<NoteVersion[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [prompt, setPrompt] = useState('');
   const [transforming, setTransforming] = useState(false);
@@ -36,7 +38,7 @@ export function App() {
   const pendingSave = useRef<{ noteId: string; patch: { title?: string; content?: string } } | null>(null);
   const active = tabs.find((tab) => tab.id === activeId)?.note ?? null;
 
-  const loadNotes = useCallback(async () => setNotes(await api.notes.list({ query: search, limit: 30 })), [search]);
+  const loadNotes = useCallback(async () => setNotes(await api.notes.list({ query: search, limit: noteLimit })), [noteLimit, search]);
   useEffect(() => void loadNotes(), [loadNotes]);
   useEffect(() => { void api.notes.sendTarget().then((app) => setActiveAppName(app || 'active app')); }, []);
   useEvent('notes:changed', ({ id }) => {
@@ -68,7 +70,10 @@ export function App() {
 
   useEffect(() => {
     if (!activeId) return;
-    if (historyOpen) void api.notes.versions(activeId).then(setVersions);
+    if (historyOpen) {
+      setVersionsLoading(true);
+      void api.notes.versions(activeId).then(setVersions).finally(() => setVersionsLoading(false));
+    }
     if (transformOpen) void api.notes.suggestions(activeId).then(setSuggestions);
   }, [activeId, historyOpen, transformOpen]);
 
@@ -114,7 +119,11 @@ export function App() {
       setVersions(await api.notes.versions(active.id));
       setTransformOpen(false);
       setHistoryOpen(true);
-    } finally { setTransforming(false); }
+    } catch (error) {
+      showToast(`Transform failed: ${errorMessage(error)}`);
+    } finally {
+      setTransforming(false);
+    }
   };
 
   return <main className={`${styles.window} ${compact ? styles.compact : ''}`}>
@@ -135,10 +144,10 @@ export function App() {
     <div className={styles.workspace}>
       {sidebar && <aside className={styles.sidebar}>
         <div className={styles.sideHead}><strong>Notes</strong><button aria-label="New note" onClick={() => void create()}><Plus size={16} /></button></div>
-        <label className={styles.sideSearch}><input aria-label="Search notes" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} /></label>
+        <label className={styles.sideSearch}><input aria-label="Search notes" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />{search && <button aria-label="Clear search" onClick={() => setSearch('')}><X size={13} /></button>}</label>
         <div className={styles.sideLabel}>Recents</div>
         <div className={styles.noteList}>{notes.map((note) => <button key={note.id} className={note.id === activeId ? styles.currentNote : ''} onClick={() => void open(note.id)}><strong>{note.title}</strong><span>{note.contentPreview || 'Empty note'}</span>{note.pinned && <Pin size={11} />}</button>)}</div>
-        {notes.length >= 30 && <button className={styles.loadMore}>Load more</button>}
+        {notes.length >= noteLimit && <button className={styles.loadMore} onClick={() => setNoteLimit((current) => current + 30)}>Load more</button>}
         {!notes.length && <p className={styles.noNotes}>{search ? 'No matching notes.' : 'No notes yet.'}</p>}
       </aside>}
       <section className={styles.document}>
@@ -171,11 +180,19 @@ export function App() {
           <form className={styles.prompt} onSubmit={(e) => { e.preventDefault(); void transform(prompt); }}><textarea aria-label="Transform prompt" placeholder="Follow up or ask a question" value={prompt} onChange={(e) => setPrompt(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void transform(prompt); } }} /><button disabled={transforming || !prompt.trim()}><Send size={15} /></button></form>
           <div className={styles.suggestionHead}><span>Suggestions</span><button aria-label="Regenerate suggestions" onClick={() => void regenerate()}><RefreshCw size={14} /></button></div>
           <div className={styles.chips}>{suggestions.map((suggestion) => <button key={suggestion} onClick={() => void transform(suggestion)}>{suggestion}</button>)}</div>
-        </> : <div className={styles.versionList}>{versions.map((version) => <button key={version.id} onClick={async () => { const note = await api.notes.restoreVersion(version.id); updateLocal(note); }}><Clock3 size={14} /><span><strong>{VERSION_LABEL[version.source]}</strong>{version.transformName && <small>{version.transformName}</small>}<time>{new Date(version.createdAt).toLocaleString()}</time></span><ChevronRight size={14} /></button>)}</div>}
+        </> : <div className={styles.versionList}>{versionsLoading ? <p>Loading versions…</p> : versions.length === 0 ? <p>No versions yet.</p> : versions.map((version) => <button key={version.id} onClick={async () => { const note = await api.notes.restoreVersion(version.id); updateLocal(note); }}><Clock3 size={14} /><span><strong>{VERSION_LABEL[version.source]}</strong>{version.transformName && <small>{version.transformName}</small>}<time>{new Date(version.createdAt).toLocaleString()}</time></span><ChevronRight size={14} /></button>)}</div>}
         <button className={styles.deleteNote} onClick={() => setDeleting(true)}><Trash2 size={15} /> Delete note</button>
       </aside>}
     </div>
     {toast && <div className={styles.toast} role="status">{toast}</div>}
-    <ConfirmDialog open={deleting} title="Delete note?" body="Once deleted it cannot be recovered." confirmLabel="Delete note" danger onClose={() => setDeleting(false)} onConfirm={() => { if (active) { void api.notes.remove(active.id); closeTab(active.id); } setDeleting(false); }} />
+    <ConfirmDialog open={deleting} title="Delete note?" body="Once deleted it cannot be recovered." confirmLabel="Delete note" danger onClose={() => setDeleting(false)} onConfirm={() => {
+      if (!active) return setDeleting(false);
+      const id = active.id;
+      void api.notes.remove(id).then(() => {
+        closeTab(id);
+        showToast('Note deleted');
+      }).catch((error) => showToast(`Failed to delete note: ${errorMessage(error)}`));
+      setDeleting(false);
+    }} />
   </main>;
 }

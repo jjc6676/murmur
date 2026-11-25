@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MeetingListItem, Skill } from '@shared/types';
 import { Brain, Copy, FileText, Mail, MessageSquare, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { api, errorMessage } from '../../lib/api';
-import { Button, Card, Checkbox, ConfirmDialog, Dialog, EmptyState, Field, Input, Page, PageHeader, SearchInput, Select, Tabs, TextArea } from '../../ui';
+import { Badge, Button, Card, Checkbox, ConfirmDialog, Dialog, EmptyState, Field, Input, Page, PageHeader, SearchInput, Select, Tabs, TextArea } from '../../ui';
 import { toast } from '../state';
 import s from '../skills/Skills.module.css';
 
@@ -35,12 +35,53 @@ export function SkillsPage() {
   const [actionCc, setActionCc] = useState('');
   const [actionSubject, setActionSubject] = useState('');
   const [actionBody, setActionBody] = useState('');
+  const [askText, setAskText] = useState('');
+  const [askAnswer, setAskAnswer] = useState<string | null>(null);
+  const [askState, setAskState] = useState<'idle' | 'thinking' | 'stopped' | 'failed'>('idle');
+  const [thinkingSeconds, setThinkingSeconds] = useState(0);
+  const askRequest = useRef<string | null>(null);
+  const answerRef = useRef<HTMLDivElement | null>(null);
   const refresh = useCallback(() => void api.skills.list().then(setSkills), []);
   useEffect(refresh, [refresh]);
   const visible = useMemo(() => skills.filter((skill) => {
     const matchesTab = tab === 'built-in' ? skill.builtIn : tab === 'mine' ? !skill.builtIn : false;
     return matchesTab && `${skill.name} ${skill.description}`.toLowerCase().includes(query.toLowerCase());
   }), [query, skills, tab]);
+  useEffect(() => {
+    if (askState !== 'thinking') return;
+    const started = Date.now();
+    const timer = window.setInterval(() => setThinkingSeconds(Math.floor((Date.now() - started) / 1_000)), 250);
+    return () => window.clearInterval(timer);
+  }, [askState]);
+  const ask = async () => {
+    const query = askText.trim();
+    if (!query || askState === 'thinking') return;
+    const requestId = crypto.randomUUID();
+    askRequest.current = requestId;
+    setAskAnswer(null);
+    setThinkingSeconds(0);
+    setAskState('thinking');
+    try {
+      const answer = await api.skills.ask(requestId, query);
+      if (askRequest.current === requestId) {
+        setAskAnswer(answer);
+        setAskState('idle');
+      }
+    } catch (askError) {
+      if (askRequest.current === requestId) {
+        setAskAnswer(errorMessage(askError));
+        setAskState('failed');
+      }
+    } finally {
+      if (askRequest.current === requestId) askRequest.current = null;
+    }
+  };
+  const stopAsk = () => {
+    if (!askRequest.current) return;
+    void api.skills.cancelAsk(askRequest.current);
+    askRequest.current = null;
+    setAskState('stopped');
+  };
   const openRun = async () => {
     setResult(null);
     setMeetingIds([]);
@@ -103,6 +144,38 @@ export function SkillsPage() {
       <PageHeader title="Skills" actions={<Button icon={<Plus size={16} />} onClick={() => { setError(null); setDraft({ ...EMPTY_DRAFT }); }}>Create Skill</Button>} />
       <Tabs value={tab} onChange={setTab} tabs={[{ id: 'built-in', label: 'Built-in' }, { id: 'mine', label: 'My Skills' }, { id: 'shared', label: 'Shared with team' }]} />
       <div className={s.toolbar}><SearchInput value={query} onChange={setQuery} placeholder="Search Skills" /></div>
+      <Card padded>
+        <Field label="Ask your meetings" hint="Murmur searches recent local transcripts and summaries.">
+          <TextArea
+            aria-label="Ask anything"
+            placeholder="Ask anything"
+            rows={3}
+            value={askText}
+            onChange={(event) => setAskText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                void ask();
+              }
+            }}
+          />
+        </Field>
+        <div className={s.actions}>
+          {askState === 'thinking' ? <Button variant="outline" onClick={stopAsk}>Stop</Button> : <Button disabled={!askText.trim()} onClick={() => void ask()}>Send</Button>}
+          {askAnswer && <Button size="sm" variant="ghost" onClick={() => answerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })}>Scroll to answer</Button>}
+          <span>{askState === 'thinking' ? `Thinking · ${thinkingSeconds}s` : askState === 'stopped' ? 'Stopped' : askState === 'failed' ? 'Failed' : ''}</span>
+        </div>
+        {(askState === 'thinking' || askAnswer) && <p>
+          {['Searching meetings', 'Reading summaries', 'Drafting answer'].map((step, index) => <span key={step}>{step} <Badge tone={askState === 'failed' ? 'danger' : askAnswer ? 'success' : index === 0 ? 'orange' : 'default'}>{askState === 'failed' ? 'Failed' : askAnswer ? 'Done' : index === 0 ? 'Running' : 'Waiting'}</Badge>{' '}</span>)}
+        </p>}
+        {askAnswer && <div ref={answerRef} className={s.result}>
+          {askAnswer}
+          <div className={s.actions}>
+            <Button size="sm" icon={<Brain size={14} />} onClick={() => void api.memory.addFact(askAnswer, 'Ask').then(() => toast('Saved to memory', { tone: 'success' }))}>Save to memory</Button>
+            <Button size="sm" variant="outline" onClick={() => void api.memory.removeFact(askAnswer).then(() => toast('Removed from memory', { tone: 'success' }))}>Remove from memory</Button>
+          </div>
+        </div>}
+      </Card>
       {tab === 'shared' ? (
         <EmptyState icon={<Sparkles size={28} />} title="Shared skills aren’t available offline" body="Your personal and built-in skills remain fully available on this device." />
       ) : visible.length ? (
