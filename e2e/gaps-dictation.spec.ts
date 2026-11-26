@@ -38,11 +38,12 @@ test('custom voice profiles override built-in app cleanup', async () => {
   }
 });
 
-test('packaged Mouse Flow defaults and shortcut validation match Flow', async () => {
+test('Mouse Flow is opt-in and side buttons remain available as shortcuts', async () => {
   const { app, hub } = await launchApp();
   try {
-    const settings = await invoke<{ mouseFlow: { dictateButton: number | null; enterButton: number | null } }>(hub, 'settings:get');
-    expect(settings.mouseFlow).toEqual({ dictateButton: 4, enterButton: 5 });
+    const settings = await invoke<{ mouseFlow: { dictateButton: number | null; enterButton: number | null }; mouseFlowConfigured: boolean }>(hub, 'settings:get');
+    expect(settings.mouseFlow).toEqual({ dictateButton: null, enterButton: null });
+    expect(settings.mouseFlowConfigured).toBe(false);
     expect(validateCombo('Ctrl+CtrlRight+K', 'ptt', {})).toContain('left or right');
     expect(validateCombo('Mouse 10', 'ptt', {})).toBeNull();
     expect(validateCombo('Aux Button', 'ptt', {})).toBeNull();

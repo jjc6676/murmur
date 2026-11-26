@@ -3,12 +3,12 @@ import { app, dialog, Menu, nativeImage, shell, Tray } from 'electron';
 import { join } from 'node:path';
 import type { CalendarEvent } from '@shared/types';
 import { getCtx } from './context';
-import { broadcast } from './ipc';
+import { broadcast, onEvent } from './ipc';
 import { paths } from './paths';
 import { ensureHub, ensureRecorder } from './windows';
 import { copyLast, isDictating, pasteLast, startDictation, stopDictation } from './features/dictation';
 import { openScratchpad } from './features/notes';
-import { toggleRecording } from './features/recorder';
+import { getRecordingMeetingId, startNextMeeting, stopRecording } from './features/recorder';
 
 let tray: Tray | null = null;
 
@@ -59,7 +59,7 @@ function meetingTimeLabel(event: CalendarEvent): string {
   return `${day}, ${start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
 }
 
-function buildMenu(): Menu {
+function buildMenu(dictating: boolean, meetingId: string | null): Menu {
   const { db, settings } = getCtx();
   const counts = db.get<{ w: number; s: number }>('SELECT SUM(isSnippet = 0) AS w, SUM(isSnippet = 1) AS s FROM dictionary');
   const recent = db.all<{ id: string; title: string }>('SELECT id, title FROM meetings WHERE isDeleted = 0 ORDER BY createdAt DESC LIMIT 5');
@@ -70,11 +70,15 @@ function buildMenu(): Menu {
   return Menu.buildFromTemplate([
     { label: 'Open Murmur', click: () => ensureHub(true) },
     { type: 'separator' },
-    { label: isDictating() ? 'Stop dictation' : 'Start dictation', click: () => (isDictating() ? stopDictation() : startDictation('popo')) },
+    dictating
+      ? { label: 'Stop dictation', click: () => stopDictation() }
+      : { label: 'Start dictation', click: () => startDictation('popo', 'tray') },
     { label: 'Paste last transcript', click: () => void pasteLast() },
     { label: 'Copy last transcript', click: () => copyLast() },
     { type: 'separator' },
-    { label: 'Start Notetaker', click: () => void toggleRecording() },
+    meetingId
+      ? { label: 'Stop Notetaker', click: () => { if (getRecordingMeetingId() === meetingId) void stopRecording(); } }
+      : { label: 'Start Notetaker', click: () => void startNextMeeting() },
     { label: 'Open Notetaker', click: () => ensureRecorder(true) },
     {
       label: 'Upcoming meetings',
@@ -102,7 +106,7 @@ function buildMenu(): Menu {
       label: 'Show next meeting',
       type: 'checkbox',
       checked: settings.get().showNextMeetingInTray,
-      click: (item) => { settings.patch({ showNextMeetingInTray: item.checked }); updateTrayLabel(); },
+      click: (item) => { settings.patch({ showNextMeetingInTray: item.checked }); },
     },
     { type: 'separator' },
     { label: `Dictionary (${counts?.w ?? 0} words)`, click: () => openHubAt('/dictionary') },
@@ -137,8 +141,40 @@ export function createTray(): void {
   const icon = nativeImage.createFromPath(join(paths.resources, 'tray.png'));
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
   updateTrayLabel();
-  const tooltipTimer = setInterval(updateTrayLabel, 60_000);
+  let dictating = isDictating();
+  let meetingId = getRecordingMeetingId();
+  tray.setContextMenu(buildMenu(dictating, meetingId));
+  // Rebuild outside the capture/hotkey handler, not on every microphone-level event.
+  let scheduled = false;
+  const refreshMenu = () => {
+    if (scheduled) return;
+    scheduled = true;
+    setImmediate(() => {
+      scheduled = false;
+      tray?.setContextMenu(buildMenu(dictating, meetingId));
+    });
+  };
+  onEvent('dictation:state', () => {
+    const active = isDictating();
+    if (active === dictating) return;
+    dictating = active;
+    refreshMenu();
+  });
+  onEvent('recorder:state', () => {
+    const active = getRecordingMeetingId();
+    if (active === meetingId) return;
+    meetingId = active;
+    refreshMenu();
+  });
+  onEvent('dictionary:changed', refreshMenu);
+  onEvent('meetings:changed', refreshMenu);
+  getCtx().settings.onChange((next, previous) => {
+    if (next.showNextMeetingInTray !== previous.showNextMeetingInTray) {
+      updateTrayLabel();
+      refreshMenu();
+    }
+  });
+  const tooltipTimer = setInterval(() => { updateTrayLabel(); refreshMenu(); }, 60_000);
   tooltipTimer.unref();
   tray.on('click', () => ensureHub(true));
-  tray.on('right-click', () => tray?.popUpContextMenu(buildMenu()));
 }

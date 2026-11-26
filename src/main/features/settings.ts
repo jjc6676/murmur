@@ -24,7 +24,7 @@ export function registerSettings(): void {
   settings.onChange((n, p) => applySideEffects(n, p));
   handle('settings', {
     get: () => settings.get(),
-    patch: (p) => settings.patch(p),
+    patch: (p) => settings.patch(p.mouseFlow ? { ...p, mouseFlowConfigured: true } : p),
     reset: () => settings.reset(),
     async recordShortcut() {
       const combo = await hotkeys.recordNextCombo();

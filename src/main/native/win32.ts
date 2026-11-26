@@ -193,6 +193,19 @@ export function keyUp(vk: number): void {
 // left/right variants: Ctrl, Alt (menu), Shift, Win
 const MODIFIER_VKS = [0xa2, 0xa3, 0xa4, 0xa5, 0xa0, 0xa1, 0x5b, 0x5c];
 
+/** High bit only: the low bit records a past press, not the current physical state. */
+export function isVirtualKeyDown(vk: number): boolean {
+  return (GetAsyncKeyState(vk) & 0x8000) !== 0;
+}
+
+/** Tag both unassigned Win-menu mask events with the triggering hook event's Windows timestamp. */
+export function maskStartMenu(time: number): boolean {
+  const down = key(0xe8, false);
+  const up = key(0xe8, true);
+  down.u.ki.time = up.u.ki.time = time;
+  return send([down, up]) === 2;
+}
+
 /** Release modifiers the user may still be physically holding (hotkey) so a synthetic paste isn't corrupted. */
 export function releaseModifiers(): void {
   // Only release keys that are actually down: a stray Alt key-up puts many apps into menu (KeyTips) mode.

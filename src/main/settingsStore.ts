@@ -12,10 +12,28 @@ export class SettingsStore {
   constructor(private file: string) {
     this.value = DEFAULT_SETTINGS;
     if (existsSync(file)) {
+      let stored: DeepPartial<Settings>;
       try {
-        this.value = mergeSettings(DEFAULT_SETTINGS, JSON.parse(readFileSync(file, 'utf8')) as DeepPartial<Settings>);
+        stored = JSON.parse(readFileSync(file, 'utf8')) as DeepPartial<Settings>;
+        this.value = mergeSettings(DEFAULT_SETTINGS, stored);
       } catch {
         // corrupt file: keep defaults; it is rewritten on next patch
+        return;
+      }
+      if ((stored.version ?? 1) < 2) {
+        const { dictateButton, enterButton } = this.value.mouseFlow;
+        if (!stored.mouseFlowConfigured && dictateButton === 4 && enterButton === 5) {
+          this.value.mouseFlow = DEFAULT_SETTINGS.mouseFlow;
+        } else if (stored.mouseFlow) {
+          // A non-default legacy mapping (including an explicit unbinding) was a user choice.
+          this.value.mouseFlowConfigured = true;
+        }
+        this.value.version = 2;
+        try {
+          this.persist();
+        } catch (error) {
+          console.warn('Could not persist migrated settings:', error);
+        }
       }
     }
   }

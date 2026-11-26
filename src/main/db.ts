@@ -352,6 +352,9 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE meetings ADD COLUMN transcriptDeletedAt TEXT;
   `,
+  `
+  ALTER TABLE history ADD COLUMN trigger TEXT;
+  `,
 ];
 
 export type Row = Record<string, SQLInputValue>;

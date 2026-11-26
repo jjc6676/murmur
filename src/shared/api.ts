@@ -70,7 +70,7 @@ export interface SettingsApi {
 
 export interface DictationApi {
   getState(): DictationState;
-  start(mode: 'ptt' | 'popo'): void;
+  start(mode: 'ptt' | 'popo', trigger?: 'bar_click' | 'onboarding' | 'api'): void;
   stop(): void;
   cancel(): void;
   pasteLast(): void;
@@ -78,10 +78,10 @@ export interface DictationApi {
   retry(historyId: string): HistoryEntry;
   /** Run the text pipeline on text without audio (used by onboarding practice & tests). */
   formatText(text: string, app?: string): string;
-  /** Renderer capture window pushes PCM16 mono 16k audio chunks while recording. */
-  pushAudio(chunk: ArrayBuffer, level: number): void;
-  /** Capture window signals all audio for the current dictation has been pushed (after a stop command). */
-  captureEnded(error?: string | null): void;
+  /** Capture callbacks belong to the session named in capture:command. */
+  captureOpened(sessionId: string): void;
+  pushAudio(sessionId: string, chunk: ArrayBuffer, level: number): void;
+  captureEnded(sessionId: string, error?: string | null): void;
   hideBarFor(ms: number): void;
 }
 
@@ -206,7 +206,7 @@ export interface RecorderApi {
   pause(): RecorderState;
   resume(): RecorderState;
   retrySystemAudio(): RecorderState;
-  systemAudioStatus(available: boolean, reason?: 'unavailable' | 'dropped'): RecorderState;
+  systemAudioStatus(meetingId: string, available: boolean, reason?: 'unavailable' | 'dropped'): RecorderState;
   splitScreen(): boolean;
   getWindowState(): { maximized: boolean; width: number; height: number };
   toggleMaximize(): boolean;

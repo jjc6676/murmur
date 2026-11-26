@@ -7,8 +7,6 @@ const SAMPLE_RATE = 16000;
 
 interface Tap {
   stream: MediaStream;
-  ctx: AudioContext;
-  node: AudioWorkletNode;
   flush(): Promise<void>;
   stop(): void;
 }
@@ -24,58 +22,55 @@ function toPcm16(f: Float32Array): { buf: ArrayBuffer; rms: number } {
   return { buf: out.buffer, rms: Math.sqrt(sum / Math.max(1, f.length)) };
 }
 
-async function tapStream(stream: MediaStream, onChunk: (buf: ArrayBuffer, level: number) => void): Promise<Tap> {
-  const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
-  if (ctx.state === 'suspended') {
-    try {
-      await ctx.resume();
-    } catch {
-      stream.getTracks().forEach((track) => track.stop());
-      throw new Error('AudioContextRecovery');
-    }
-  }
-  try {
-    await ctx.audioWorklet.addModule(workletUrl);
-  } catch {
+async function tapStream(stream: MediaStream, signal: AbortSignal, onChunk: (buf: ArrayBuffer, level: number) => void): Promise<Tap> {
+  let ctx: AudioContext | undefined;
+  let stopped = false;
+  function stop(): void {
+    if (stopped) return;
+    stopped = true;
     stream.getTracks().forEach((track) => track.stop());
-    void ctx.close();
-    throw new Error('AudioWorkletLoadError');
+    if (ctx) void ctx.close();
   }
-  const src = ctx.createMediaStreamSource(stream);
-  const node = new AudioWorkletNode(ctx, 'pcm-tap', { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 1, channelCountMode: 'explicit' });
-  let paused = false;
-  let flushed: (() => void) | null = null;
-  node.port.onmessage = (e: MessageEvent<Float32Array | string>) => {
-    if (e.data === 'flushed') {
-      flushed?.();
-      return;
+  signal.addEventListener('abort', stop, { once: true });
+  try {
+    signal.throwIfAborted();
+    ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
+    if (ctx.state === 'suspended') {
+      await ctx.resume().catch(() => { throw new Error('AudioContextRecovery'); });
     }
-    if (paused || typeof e.data === 'string') return;
-    const { buf, rms } = toPcm16(e.data);
-    onChunk(buf, Math.min(1, rms * 4));
-  };
-  src.connect(node);
-  return {
-    stream,
-    ctx,
-    node,
-    flush() {
-      const { promise, resolve } = Promise.withResolvers<void>();
-      flushed = resolve;
-      node.port.postMessage('flush');
-      setTimeout(resolve, 300);
-      return promise;
-    },
-    stop() {
-      paused = true;
-      stream.getTracks().forEach((t) => t.stop());
-      void ctx.close();
-    },
-  };
+    await ctx.audioWorklet.addModule(workletUrl).catch(() => { throw new Error('AudioWorkletLoadError'); });
+    signal.throwIfAborted();
+    if (!stream.getAudioTracks().some((t) => t.readyState === 'live')) throw new Error('MicDisconnected');
+    const src = ctx.createMediaStreamSource(stream);
+    const node = new AudioWorkletNode(ctx, 'pcm-tap', { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 1, channelCountMode: 'explicit' });
+    let flushed: (() => void) | undefined;
+    node.port.onmessage = (e: MessageEvent<Float32Array | string>) => {
+      if (e.data === 'flushed') flushed?.();
+      if (stopped || typeof e.data === 'string') return;
+      const { buf, rms } = toPcm16(e.data);
+      onChunk(buf, Math.min(1, rms * 4));
+    };
+    src.connect(node);
+    return {
+      stream, stop,
+      flush() {
+        const { promise, resolve } = Promise.withResolvers<void>();
+        flushed = resolve;
+        node.port.postMessage('flush');
+        const timer = setTimeout(resolve, 300);
+        return promise.finally(() => clearTimeout(timer));
+      },
+    };
+  } catch (error) {
+    stop();
+    throw error;
+  } finally {
+    signal.removeEventListener('abort', stop);
+  }
 }
 
 function micError(error: unknown): string {
-  if (error instanceof Error && /^(AudioWorkletLoadError|AudioContextRecovery)$/.test(error.message)) return error.message;
+  if (error instanceof Error && /^(AudioWorkletLoadError|AudioContextRecovery|MicDisconnected)$/.test(error.message)) return error.message;
   const name = error instanceof DOMException ? error.name : '';
   if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'MicNotFound';
   if (name === 'NotReadableError') return 'MicNotReadable';
@@ -112,118 +107,160 @@ async function openSystemAudio(): Promise<MediaStream> {
 }
 
 // ------------------------------------------------------------------ dictation
-let dictation: Tap | null = null;
-let dictationStarting: Promise<void> | null = null;
+interface DictationCapture {
+  id: string;
+  opening: AbortController;
+  tap?: Tap;
+}
+let dictation: DictationCapture | null = null;
 
-async function startDictation(deviceId: string): Promise<void> {
-  if (dictation || dictationStarting) return;
-  dictationStarting = (async () => {
-    try {
-      const stream = await openMic(deviceId);
-      let disconnected = false;
-      stream.getAudioTracks()[0]?.addEventListener('ended', () => {
-        if (!dictation || disconnected) return;
-        disconnected = true;
-        dictation = null;
-        void api.dictation.captureEnded('MicDisconnected');
-      });
-      dictation = await tapStream(stream, (buf, level) => void api.dictation.pushAudio(buf, level));
-    } catch (e) {
-      dictation = null;
-      void api.dictation.captureEnded(micError(e));
-    } finally {
-      dictationStarting = null;
+async function startDictation(id: string, deviceId: string): Promise<void> {
+  if (dictation?.id === id) return;
+  if (dictation) void stopDictation(dictation.id);
+  const owner: DictationCapture = { id, opening: new AbortController() };
+  dictation = owner;
+  const fail = (error: string) => {
+    if (dictation !== owner) return;
+    dictation = null;
+    owner.opening.abort();
+    owner.tap?.stop();
+    void api.dictation.captureEnded(id, error);
+  };
+  try {
+    const stream = await openMic(deviceId);
+    const tap = await tapStream(stream, owner.opening.signal, (buf, level) => void api.dictation.pushAudio(id, buf, level));
+    if (dictation !== owner) {
+      tap.stop();
+      return;
     }
-  })();
-  return dictationStarting;
+    owner.tap = tap;
+    stream.getAudioTracks()[0].addEventListener('ended', () => fail('MicDisconnected'), { once: true });
+    void api.dictation.captureOpened(id);
+    void listDevices(true);
+  } catch (error) {
+    fail(micError(error));
+  }
 }
 
-async function stopDictation(): Promise<void> {
-  if (dictationStarting) await dictationStarting;
-  const tap = dictation;
+async function stopDictation(id: string): Promise<void> {
+  const owner = dictation;
+  if (!owner || owner.id !== id) return;
   dictation = null;
-  if (!tap) return;
-  await tap.flush();
-  tap.stop();
-  await api.dictation.captureEnded(null);
+  owner.opening.abort();
+  try {
+    await owner.tap?.flush();
+  } finally {
+    owner.tap?.stop();
+    void api.dictation.captureEnded(id, null);
+  }
 }
 
 // ------------------------------------------------------------------ meeting
-let meeting: { mic: Tap | null; system: Tap | null; paused: boolean } | null = null;
+interface MeetingCapture {
+  id: string;
+  opening: AbortController;
+  mic?: Tap;
+  system?: Tap;
+  systemOpening: boolean;
+  paused: boolean;
+}
+let meeting: MeetingCapture | null = null;
+
+async function openMeetingInput(m: MeetingCapture, source: 'mic' | 'system', stream: Promise<MediaStream>): Promise<void> {
+  try {
+    const tap = await tapStream(await stream, m.opening.signal, (buf, level) => {
+      if (meeting === m && !m.paused) void api.recorder.pushAudio(source, buf, level);
+    });
+    if (meeting !== m) {
+      tap.stop();
+      return;
+    }
+    m[source] = tap;
+    if (source === 'system') {
+      tap.stream.getAudioTracks()[0].addEventListener('ended', () => {
+        if (meeting !== m || m.system !== tap) return;
+        m.system = undefined;
+        tap.stop();
+        void api.recorder.systemAudioStatus(m.id, false, 'dropped');
+      }, { once: true });
+      void api.recorder.systemAudioStatus(m.id, true);
+    }
+  } catch (error) {
+    if (meeting !== m) return;
+    if (source === 'system') void api.recorder.systemAudioStatus(m.id, false, 'unavailable');
+    console.error(`meeting ${source} failed`, error);
+  } finally {
+    if (source === 'system') m.systemOpening = false;
+  }
+}
+
+function retryMeetingSystemAudio(id: string): void {
+  const m = meeting;
+  if (!m || m.id !== id || m.system || m.systemOpening) return;
+  m.systemOpening = true;
+  void openMeetingInput(m, 'system', openSystemAudio());
+}
 
 /**
  * getDisplayMedia (system loopback) needs transient user activation, so main invokes this through
  * executeJavaScript(..., userGesture=true) and the call is issued synchronously before any await.
  */
-function startMeeting(deviceId: string): void {
+function startMeeting(deviceId: string, id: string): void {
   if (meeting) return;
-  meeting = { mic: null, system: null, paused: false };
-  const m = meeting;
-  const push = (source: 'mic' | 'system') => (buf: ArrayBuffer, level: number) => {
-    if (!m.paused && meeting === m) void api.recorder.pushAudio(source, buf, level);
-  };
-  const system = openSystemAudio();
-  void (async () => {
-    try {
-      m.mic = await tapStream(await openMic(deviceId), push('mic'));
-    } catch (e) {
-      console.error('meeting mic failed', e);
-    }
-    try {
-      const systemStream = await system;
-      systemStream.getAudioTracks()[0]?.addEventListener('ended', () => {
-        if (meeting !== m || !m.system) return;
-        m.system = null;
-        void api.recorder.systemAudioStatus(false, 'dropped');
-      });
-      m.system = await tapStream(systemStream, push('system'));
-      void api.recorder.systemAudioStatus(true);
-    } catch (e) {
-      void api.recorder.systemAudioStatus(false, 'unavailable');
-      console.error('meeting system audio failed', e);
-    }
-  })();
+  meeting = { id, opening: new AbortController(), systemOpening: false, paused: false };
+  retryMeetingSystemAudio(id);
+  void openMeetingInput(meeting, 'mic', openMic(deviceId));
 }
 
 declare global {
   interface Window {
-    murmurStartMeeting(deviceId: string): void;
+    murmurStartMeeting(deviceId: string, meetingId: string): void;
+    murmurRetryMeetingSystemAudio(meetingId: string): void;
   }
 }
 window.murmurStartMeeting = startMeeting;
+window.murmurRetryMeetingSystemAudio = retryMeetingSystemAudio;
 
 async function stopMeeting(): Promise<void> {
   const m = meeting;
   meeting = null;
   if (!m) return;
-  await Promise.all([m.mic?.flush(), m.system?.flush()]);
-  m.mic?.stop();
-  m.system?.stop();
+  m.opening.abort();
+  try {
+    await Promise.all([m.mic?.flush(), m.system?.flush()]);
+  } finally {
+    m.mic?.stop();
+    m.system?.stop();
+  }
 }
 
 onEvent('capture:command', (cmd) => {
   if (cmd.kind === 'dictation') {
-    if (cmd.action === 'start') void startDictation(cmd.deviceId);
-    else if (cmd.action === 'stop') void stopDictation();
+    if (cmd.action === 'start') void startDictation(cmd.sessionId, cmd.deviceId);
+    else void stopDictation(cmd.sessionId);
     return;
   }
-  if (cmd.action === 'start') startMeeting(cmd.deviceId);
-  else if (cmd.action === 'stop') void stopMeeting();
-  else if (meeting) meeting.paused = cmd.action === 'pause';
+  if (cmd.action === 'stop') void stopMeeting();
+  else if (meeting && (cmd.action === 'pause' || cmd.action === 'resume')) meeting.paused = cmd.action === 'pause';
 });
 
-// Device list for settings (labels require a granted permission, which Electron grants automatically).
-async function listDevices(): Promise<void> {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  const inputs = devices.filter((d) => d.kind === 'audioinput' && d.deviceId !== 'communications');
-  window.murmur.send('capture:devices', inputs.map((d) => ({ deviceId: d.deviceId, label: d.label || 'Microphone' })));
+// Chromium withholds labels before permission. Never open a stream just to populate settings.
+async function listDevices(micIsOpen = false): Promise<void> {
+  try {
+    if (!micIsOpen) {
+      const permission = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      if (permission.state !== 'granted') return;
+    }
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs = devices.filter((d) => d.kind === 'audioinput' && d.deviceId !== 'communications');
+    if (inputs.some((d) => !d.label)) return;
+    window.murmur.send('capture:devices', inputs.map((d) => ({ deviceId: d.deviceId, label: d.label })));
+  } catch {
+    // Device enumeration is optional; capture errors are reported by the session itself.
+  }
 }
 navigator.mediaDevices.addEventListener('devicechange', () => void listDevices());
-void navigator.mediaDevices
-  .getUserMedia({ audio: true })
-  .then((s) => s.getTracks().forEach((t) => t.stop()))
-  .catch(() => undefined)
-  .finally(() => void listDevices());
+void listDevices();
 
 // ------------------------------------------------------------------ sounds (synthesized; capture window is always alive)
 const TONES: Record<string, { f: number[]; d: number; type: OscillatorType; gain: number }> = {

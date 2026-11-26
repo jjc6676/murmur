@@ -2,7 +2,8 @@
 import { app, clipboard, shell } from 'electron';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { DictationMode, DictationState, HistoryEntry, HistoryStatus } from '@shared/types';
+import type { DictationMode, DictationState, DictationTrigger, HistoryEntry, HistoryStatus } from '@shared/types';
+import type { MurmurEvents } from '@shared/events';
 import { countWords } from '@shared/textPipeline';
 import { comboLabelParts } from '@shared/hotkeys';
 import { getCtx } from '../context';
@@ -30,30 +31,39 @@ const MURMUR_PROCESSES: Record<string, true> = { murmur: true, electron: true };
 interface Session {
   id: string;
   mode: DictationMode;
+  trigger: DictationTrigger | null;
   startedAt: number;
   target: ForegroundApp;
-  chunks: Buffer[];
-  stopping: boolean;
-  cancelled: boolean;
-  ended: PromiseWithResolvers<string | null>;
-  warnTimer: NodeJS.Timeout;
-  maxTimer: NodeJS.Timeout;
   /** Focused-field context at start; empty when disabled or unavailable. */
   context: Promise<{ text: string; selected: string; url: string | null }>;
 }
 
+interface CaptureSession extends Session {
+  chunks: Buffer[];
+  capture: Electron.WebContents;
+  sent: boolean;
+  ended: PromiseWithResolvers<string | null>;
+  ackTimer?: NodeJS.Timeout;
+  warnTimer: NodeJS.Timeout;
+  maxTimer: NodeJS.Timeout;
+}
+
 let state: DictationState = { phase: 'resting', mode: null, startedAt: null, level: 0, message: null, lastEntryId: null, polishName: null };
-let session: Session | null = null;
-let lastTapAt = 0;
-let processingQueue: Promise<unknown> = Promise.resolve();
+let session: CaptureSession | null = null;
+let stateOwner: string | null = null;
+let processingQueue = Promise.resolve();
 let lastPaste: { id: string; at: number } | null = null;
 let lastLevelAt = 0;
-// Sessions cancelled while capture is still flushing; resolved on the next captureEnded.
-const pendingCancelled = new Set<Session>();
+// Includes stopped sessions until their final PCM and completion arrive.
+const captures = new Map<string, CaptureSession>();
 
 function setState(patch: Partial<DictationState>): void {
   state = { ...state, ...patch };
   broadcast('dictation:state', state);
+}
+
+function setSessionState(s: Session, patch: Partial<DictationState>): void {
+  if (stateOwner === s.id) setState(patch);
 }
 
 function playSound(name: 'start' | 'stop' | 'paste' | 'notification' | 'achievement'): void {
@@ -81,14 +91,10 @@ export function refreshAppBlockedState(): void {
   if (state.message !== message) setState({ message });
 }
 
-export function startDictation(mode: DictationMode): void {
+export function startDictation(mode: DictationMode, trigger: DictationTrigger): void {
   if (session) return;
   if (isTransforming()) {
     showToast({ key: 'PolishRunningWarning', title: "Can't dictate while a transform is running", target: 'bar', tone: 'warning' });
-    return;
-  }
-  if (state.phase === 'processing' || state.phase === 'polish_processing') {
-    showToast({ key: 'TranscriptCurrentlyProcessing', title: 'Your previous transcript is still processing', body: 'Wait a moment, then press your shortcut again.', target: 'bar', tone: 'warning' });
     return;
   }
   const { settings, asr } = getCtx();
@@ -107,16 +113,16 @@ export function startDictation(mode: DictationMode): void {
       (action) => action === 'settings' && void shell.openExternal('ms-settings:privacy-microphone'),
     );
   });
-  const ended = Promise.withResolvers<string | null>();
-  session = {
+  const cur: CaptureSession = {
     id: newId(),
     mode,
+    trigger,
     startedAt: Date.now(),
     target,
     chunks: [],
-    stopping: false,
-    cancelled: false,
-    ended,
+    capture: ensureCapture().webContents,
+    sent: false,
+    ended: Promise.withResolvers<string | null>(),
     context: s.contextAwareness || s.internal.shouldSaveAxText
       ? readFocusedText(1500, true).then((r) => ({ text: r.ok ? r.value : '', selected: r.selected, url: r.url }))
       : Promise.resolve({ text: '', selected: '', url: null }),
@@ -131,25 +137,100 @@ export function startDictation(mode: DictationMode): void {
       stopDictation();
     }, MAX_SECONDS * 1000),
   };
-  setState({ phase: mode === 'popo' ? 'active_popo' : 'active_ptt', mode, startedAt: session.startedAt, level: 0, message: null });
-  playSound('start');
-  // let the start chime play before silencing output
-  setTimeout(() => {
-    if (session && !session.stopping) duckMedia();
-  }, 150);
-  ensureCapture().webContents.send('evt:capture:command', { kind: 'dictation', action: 'start', deviceId: resolveMicDeviceId() });
+  session = cur;
+  stateOwner = cur.id;
+  captures.set(cur.id, cur);
+  setState({ phase: 'initializing', mode, startedAt: cur.startedAt, level: 0, message: null, polishName: null });
+  const wc = cur.capture;
+  const lost = () => finishCapture(cur.id, 'MicDisconnected');
+  const open = () => {
+    if (session !== cur) return;
+    cur.sent = true;
+    wc.once('did-start-loading', lost);
+    sendCapture(cur, 'start');
+  };
+  wc.once('render-process-gone', lost);
+  wc.once('destroyed', lost);
+  void cur.ended.promise.then(() => {
+    wc.removeListener('did-finish-load', open);
+    wc.removeListener('did-start-loading', lost);
+    wc.removeListener('render-process-gone', lost);
+    wc.removeListener('destroyed', lost);
+  });
+  cur.ackTimer = setTimeout(() => {
+    if (cur.sent) sendCapture(cur, 'stop');
+    finishCapture(cur.id, 'MicAccessTimeout');
+  }, 10_000);
+  if (wc.isCrashed()) wc.reload();
+  if (wc.isLoadingMainFrame() || !wc.getURL()) wc.once('did-finish-load', open);
+  else open();
+}
+
+function sendCapture(s: CaptureSession, action: 'start' | 'stop'): void {
+  if (s.capture.isDestroyed()) {
+    finishCapture(s.id, 'MicDisconnected');
+    return;
+  }
+  const command: MurmurEvents['capture:command'] = {
+    kind: 'dictation', action, sessionId: s.id, deviceId: action === 'start' ? resolveMicDeviceId() : '',
+  };
+  try {
+    s.capture.send('evt:capture:command', command);
+  } catch {
+    // The renderer may have lost its frame before Electron delivers render-process-gone.
+    finishCapture(s.id, 'MicDisconnected');
+  }
+}
+
+function detach(s: CaptureSession): void {
+  session = null;
+  clearTimeout(s.warnTimer);
+  clearTimeout(s.maxTimer);
+  clearTimeout(s.ackTimer);
+  unduckMedia();
+}
+
+function requestStop(s: CaptureSession): void {
+  detach(s);
+  if (!s.sent) {
+    finishCapture(s.id, null);
+    return;
+  }
+  s.ackTimer = setTimeout(() => finishCapture(s.id, 'MicDisconnected'), 2000);
+  sendCapture(s, 'stop');
+}
+
+function enqueueProcessing(s: CaptureSession, phase: 'processing' | 'resting' = 'processing'): void {
+  setSessionState(s, { phase, mode: null, startedAt: null, level: 0 });
+  processingQueue = processingQueue.then(() => processSession(s)).catch((e: unknown) => {
+    setSessionState(s, { phase: 'error', message: e instanceof Error ? e.message : String(e) });
+    setTimeout(() => setSessionState(s, { phase: 'resting', message: null }), 2500);
+  });
+}
+
+function finishCapture(id: string, error: string | null): void {
+  const s = captures.get(id);
+  if (!s) return;
+  captures.delete(id);
+  clearTimeout(s.ackTimer);
+  if (session === s) {
+    detach(s);
+    error ??= 'MicDisconnected';
+    enqueueProcessing(s, error === 'MicDisconnected' && s.chunks.length ? 'processing' : 'resting');
+  }
+  if (error && stateOwner === id) {
+    const [key, ...details] = error.split(':');
+    showMicrophoneFailure(key, details.join(':'));
+  }
+  s.ended.resolve(error);
 }
 
 /** Stop capturing and process. Short PTT taps are treated as accidental (with a coaching toast). */
 export function stopDictation(): void {
   const cur = session;
-  if (!cur || cur.stopping) return;
-  cur.stopping = true;
-  clearTimeout(cur.warnTimer);
-  clearTimeout(cur.maxTimer);
+  if (!cur) return;
   const heldMs = Date.now() - cur.startedAt;
-  ensureCapture().webContents.send('evt:capture:command', { kind: 'dictation', action: 'stop', deviceId: '' });
-  unduckMedia();
+  requestStop(cur);
   playSound('stop');
   if (heldMs > 3 * 60_000) {
     showNudge(
@@ -160,45 +241,26 @@ export function stopDictation(): void {
     );
   }
   if (cur.mode === 'ptt' && heldMs < TAP_MS) {
-    cur.cancelled = true;
-    session = null;
     setState({ phase: 'resting', mode: null, startedAt: null, level: 0 });
-    // two quick taps => hands-free
-    if (Date.now() - lastTapAt < 600) {
-      lastTapAt = 0;
-      startDictation('popo');
-    } else {
-      lastTapAt = Date.now();
-      showNudge('Debounce', { title: `Don't tap. Hold down ${shortcutLabel('ptt')}.`, body: `Or double tap to start hands-free mode.`, target: 'bar' }, { minIntervalMs: 30_000 });
-    }
+    showNudge('Debounce', { title: `Don't tap. Hold down ${shortcutLabel('ptt')}.`, body: 'Or double tap to start hands-free mode.', target: 'bar' }, { minIntervalMs: 30_000 });
     return;
   }
-  setState({ phase: 'processing', level: 0 });
-  const job = processSession(cur).catch((e: unknown) => {
-    setState({ phase: 'error', message: e instanceof Error ? e.message : String(e) });
-    setTimeout(() => setState({ phase: 'resting', message: null }), 2500);
-  });
-  processingQueue = processingQueue.then(() => job);
+  enqueueProcessing(cur);
 }
 
-/** Cancel a PTT start when another physical key arrives during its first 300 ms. */
+/** A different shortcut claimed the held keys: discard the recording, including its history. */
 export function cancelDictationForOtherShortcut(): void {
   const cur = session;
-  if (!cur || cur.mode !== 'ptt' || Date.now() - cur.startedAt > 300) return;
-  cancelDictation();
-  showToast({ key: 'DictationCancelledOtherShortcut', title: `Hold only ${shortcutLabel('ptt')} to dictate.`, target: 'bar', tone: 'warning' });
+  if (!cur || cur.mode === 'popo') return;
+  requestStop(cur);
+  setState({ phase: 'resting', mode: null, startedAt: null, level: 0 });
+  if (cur.mode === 'ptt') showToast({ key: 'DictationCancelledOtherShortcut', title: `Hold only ${shortcutLabel('ptt')} to dictate.`, target: 'bar', tone: 'warning' });
 }
 
 export function cancelDictation(): void {
   const cur = session;
   if (!cur) return;
-  cur.cancelled = true;
-  clearTimeout(cur.warnTimer);
-  clearTimeout(cur.maxTimer);
-  ensureCapture().webContents.send('evt:capture:command', { kind: 'dictation', action: 'stop', deviceId: '' });
-  session = null;
-  pendingCancelled.add(cur);
-  unduckMedia();
+  requestStop(cur);
   setState({ phase: 'resting', mode: null, startedAt: null, level: 0 });
   void cur.ended.promise.then(async () => {
     const pcm = Buffer.concat(cur.chunks);
@@ -254,6 +316,7 @@ function saveHistory(
     numWords: countWords(r.formattedText),
     language: r.language,
     mode: s.mode,
+    trigger: s.trigger,
     cleanupLevel: r.extra?.cleanupLevel ?? st.cleanupLevel,
     styleContext: r.extra?.styleContext ?? 'other',
     audioPath,
@@ -309,6 +372,7 @@ function showMicrophoneFailure(key: string, detail?: string): void {
   const catalog: Record<string, { title: string; body: string; action: string }> = {
     MicNotFound: { title: 'No microphone found', body: 'Connect a microphone and try again.', action: 'Open Sound Settings' },
     MicNotReadable: { title: 'Your microphone is not readable', body: 'Another app or audio driver may be using it.', action: 'Open Sound Settings' },
+    MicDisconnected: { title: 'Your microphone disconnected', body: 'Dictation stopped. Any captured audio will be processed.', action: 'Open Sound Settings' },
     MicrophonePermissionRevoked: { title: 'Microphone permission is required', body: 'Allow Murmur to use your microphone in Windows Settings.', action: 'Open Sound Settings' },
     MicAccessTimeout: { title: 'Unable to access mic', body: 'Restart Murmur and try again.', action: 'Restart App' },
     AudioWorkletLoadError: { title: 'Murmur’s audio system failed to load', body: 'Restart Murmur and try again.', action: 'Restart App' },
@@ -373,18 +437,16 @@ async function shouldAutoInstruct(text: string): Promise<boolean> {
   return localInstruction;
 }
 
-async function processSession(s: Session): Promise<void> {
+async function processSession(s: CaptureSession): Promise<void> {
   const err = await s.ended.promise;
-  session = null;
   const t0 = Date.now();
   const pcm = Buffer.concat(s.chunks);
   const context = await s.context;
   const accessibilityContext = getCtx().settings.get().internal.shouldSaveAxText ? context.text : null;
   const activeContext = { accessibilityContext, selectedText: context.selected || null, appUrl: context.url };
-  if (err && err !== 'MicDisconnected') {
+  if (err && (err !== 'MicDisconnected' || !pcm.length)) {
     saveHistory(s, { status: 'failed', asrText: '', formattedText: '', pcm, language: 'en', latencyMs: 0, error: err, extra: activeContext });
-    showMicrophoneFailure(err.split(':')[0], err.includes(':') ? err.slice(err.indexOf(':') + 1) : undefined);
-    setState({ phase: 'resting', mode: null, startedAt: null });
+    setSessionState(s, { phase: 'resting', mode: null, startedAt: null });
     return;
   }
   if (speechSeconds(pcm) < 0.15) {
@@ -402,7 +464,7 @@ async function processSession(s: Session): Promise<void> {
       },
       (action) => action === 'mic' && broadcast('settings:open', { section: 'general' }),
     );
-    setState({ phase: 'resting', mode: null, startedAt: null });
+    setSessionState(s, { phase: 'resting', mode: null, startedAt: null });
     return;
   }
   getCtx().db.kvSet('noAudioCount', 0);
@@ -425,7 +487,7 @@ async function processSession(s: Session): Promise<void> {
       showToast({ key: 'TranscriptionError', title: "Something's not right", body: 'Transcription failed. Your audio is saved.', tone: 'error', target: 'bar', actions: [{ id: 'retry', label: 'Retry' }] }, (a) => {
         if (a === 'retry') void retryHistory(entry.id, true);
       });
-      setState({ phase: 'resting', mode: null, startedAt: null });
+      setSessionState(s, { phase: 'resting', mode: null, startedAt: null });
       return;
     }
     const settings = getCtx().settings.get();
@@ -435,15 +497,18 @@ async function processSession(s: Session): Promise<void> {
     if (!asrText.trim()) {
       saveHistory(s, { status: 'empty', asrText: '', formattedText: '', pcm, language: outputLanguage, latencyMs: Date.now() - t0, extra: { ...activeContext, detectedLanguage, outputLanguage } });
       showToast({ key: 'TranscriptionEmpty', title: "We couldn't hear you", body: 'No words were detected.', tone: 'warning', target: 'bar' });
-      setState({ phase: 'resting', mode: null, startedAt: null });
+      setSessionState(s, { phase: 'resting', mode: null, startedAt: null });
       return;
     }
-    if (s.mode === 'command' || s.mode === 'lens' || s.mode === 'instruct') {
+    // A disconnect is not consent to execute a partial command or paste its result.
+    if (err === 'MicDisconnected') {
+      await deliver(s, asrText, outputLanguage, pcm, t0, detectedLanguage, true);
+    } else if (s.mode === 'command' || s.mode === 'lens' || s.mode === 'instruct') {
       await deliverCommand(s, asrText, outputLanguage, pcm, t0);
     } else if (settings.internal.isAutoInstructEnabled && await shouldAutoInstruct(asrText)) {
       await deliverCommand({ ...s, mode: 'instruct' }, asrText, outputLanguage, pcm, t0);
     } else {
-      await deliver(s, asrText, outputLanguage, pcm, t0, detectedLanguage, err === 'MicDisconnected');
+      await deliver(s, asrText, outputLanguage, pcm, t0, detectedLanguage);
     }
   } finally {
     clearTimeout(delayTimer);
@@ -460,7 +525,7 @@ async function deliverCommand(s: Session, instruction: string, language: string,
     showToast({ key: 'CommandModeDisabled', title: 'Command mode is toggled off', body: 'Please turn it on to use it.', target: 'bar', actions: [{ id: 'settings', label: 'Go to settings' }] }, (a) => {
       if (a === 'settings') broadcast('settings:open', { section: 'experimental' });
     });
-    setState({ phase: 'resting', mode: null, startedAt: null });
+    setSessionState(s, { phase: 'resting', mode: null, startedAt: null });
     return;
   }
   if (s.mode === 'instruct') {
@@ -506,10 +571,10 @@ async function deliverCommand(s: Session, instruction: string, language: string,
           instructRoute: toolRoute,
         },
       });
-      setState({ phase: 'completed', mode: null, startedAt: null, lastEntryId: entry.id, polishName: null, message: 'Done!' });
+      setSessionState(s, { phase: 'completed', mode: null, startedAt: null, lastEntryId: entry.id, polishName: null, message: 'Done!' });
       showToast({ key: 'UpdateSettingsConfirmation', title: toolRoute.startsWith('update_settings') ? 'Settings updated' : 'Opened in Murmur', target: 'bar', tone: 'success' });
       setTimeout(() => {
-        if (state.phase === 'completed') setState({ phase: 'resting', message: null });
+        if (state.phase === 'completed') setSessionState(s, { phase: 'resting', message: null });
       }, 1600);
       return;
     }
@@ -526,7 +591,7 @@ async function deliverCommand(s: Session, instruction: string, language: string,
   } else if (s.mode === 'lens') {
     showNudge('LensIntro', { title: 'Ask Murmur about what you see', body: 'Select text or focus a window, then ask your question with the Lens shortcut.', target: 'bar', actions: [{ id: 'settings', label: 'Lens settings' }] }, { max: 1 }, (action) => action === 'settings' && broadcast('settings:open', { section: 'shortcuts' }));
   }
-  setState({ phase: 'polish_processing', polishName: 'Command' });
+  setSessionState(s, { phase: 'polish_processing', polishName: 'Command' });
   await waitForModifiersReleased((k) => hotkeys.isHeld(k));
   const selection = await copySelection();
   let output = '';
@@ -558,17 +623,17 @@ async function deliverCommand(s: Session, instruction: string, language: string,
       instructRoute: selection ? 'rewrite_selection' : 'draft_at_cursor',
     },
   });
-  setState({ lastEntryId: entry.id });
+  setSessionState(s, { lastEntryId: entry.id });
   if (error || !output.trim()) {
     showToast({ key: 'CommandModeServersAreBusy', title: 'Command Mode is busy', body: error ?? 'The local AI helper is experiencing high demand. Try again.', tone: 'error', target: 'bar' });
-    setState({ phase: 'resting', mode: null, startedAt: null, polishName: null });
+    setSessionState(s, { phase: 'resting', mode: null, startedAt: null, polishName: null });
     return;
   }
   await pasteText(output.trim(), { target: s.target });
   playSound('paste');
-  setState({ phase: 'completed', mode: null, startedAt: null, polishName: null, message: selection ? 'Transformed!' : 'Done!' });
+  setSessionState(s, { phase: 'completed', mode: null, startedAt: null, polishName: null, message: selection ? 'Transformed!' : 'Done!' });
   setTimeout(() => {
-    if (state.phase === 'completed') setState({ phase: 'resting', message: null });
+    if (state.phase === 'completed') setSessionState(s, { phase: 'resting', message: null });
   }, 1600);
 }
 
@@ -595,7 +660,7 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
   if (st.transformsEnabled && st.autoApplyAfterDictation.active && finalText) {
     const tr = st.transforms.find((t) => t.id === st.autoApplyAfterDictation.transformId);
     if (tr) {
-      setState({ phase: 'polish_processing', polishName: tr.name });
+      setSessionState(s, { phase: 'polish_processing', polishName: tr.name });
       try {
         finalText = await runTransformText(tr.id, finalText);
         showToast({ key: 'PolishAutoEditReady', title: 'We polished your dictation', target: 'bar', actions: [{ id: 'reveal', label: 'Reveal edit' }] }, (a) => {
@@ -635,7 +700,7 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
       appUrl: context.url,
     },
   });
-  setState({ lastEntryId: entry.id });
+  setSessionState(s, { lastEntryId: entry.id });
   if (deferPaste) {
     showToast(
       {
@@ -711,9 +776,9 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
     );
   } else if (formatted.appliedFeatures.length) {
     const label = formatted.appliedFeatures.includes('list') ? 'Listed!' : formatted.appliedFeatures.includes('backtrack') ? 'Backtrack caught!' : 'Email formatted!';
-    setState({ message: label });
+    setSessionState(s, { message: label });
   } else if (formatted.numWordsCorrected > 0) {
-    setState({ message: 'Cleaned up!' });
+    setSessionState(s, { message: 'Cleaned up!' });
   }
   for (const feature of formatted.appliedFeatures) {
     const key = feature === 'list' ? 'SmartFormattingList' : feature === 'backtrack' ? 'SmartFormattingBacktrack' : feature === 'file_tagging' ? 'SmartFormattingFileTagging' : 'SmartFormattingEmails';
@@ -766,9 +831,9 @@ async function deliver(s: Session, asrText: string, language: string, pcm: Buffe
       },
     );
   }
-  setState({ phase: 'completed', mode: null, startedAt: null, polishName: null });
+  setSessionState(s, { phase: 'completed', mode: null, startedAt: null, polishName: null });
   setTimeout(() => {
-    if (state.phase === 'completed') setState({ phase: 'resting', message: null });
+    if (state.phase === 'completed') setSessionState(s, { phase: 'resting', message: null });
   }, 1600);
   return entry;
 }
@@ -779,19 +844,15 @@ export async function retryHistory(id: string, paste: boolean): Promise<HistoryE
   if (!row?.audioPath || !existsSync(row.audioPath)) throw new Error('Audio for this dictation is no longer available');
   const pcm = wavToPcm16(readFileSync(row.audioPath));
   const t0 = Date.now();
+  if (paste && !session && state.phase !== 'processing' && state.phase !== 'polish_processing') stateOwner = row.id;
   const { text, language } = await transcribe(pcm);
   const target = paste ? getForegroundApp() : { hwnd: null, exe: row.app + '.exe', processName: row.app, title: row.appTitle };
   const s: Session = {
     id: row.id,
     mode: row.mode,
+    trigger: row.trigger,
     startedAt: new Date(row.timestamp).getTime(),
     target,
-    chunks: [pcm],
-    stopping: true,
-    cancelled: false,
-    ended: Promise.withResolvers<string | null>(),
-    warnTimer: setTimeout(() => {}, 0),
-    maxTimer: setTimeout(() => {}, 0),
     context: Promise.resolve({ text: '', selected: '', url: null }),
   };
   if (!text.trim()) return saveHistory(s, { status: 'empty', asrText: '', formattedText: '', pcm, language, latencyMs: Date.now() - t0 });
@@ -846,7 +907,11 @@ export function copyLast(): void {
 export function registerDictation(): void {
   handle('dictation', {
     getState: () => state,
-    start: (mode) => startDictation(mode),
+    start(mode, trigger = 'api') {
+      if (mode !== 'ptt' && mode !== 'popo') throw new Error('Invalid dictation mode');
+      if (trigger !== 'bar_click' && trigger !== 'onboarding' && trigger !== 'api') throw new Error('Invalid dictation trigger');
+      startDictation(mode, trigger);
+    },
     stop: () => stopDictation(),
     cancel: () => cancelDictation(),
     pasteLast: () => pasteLast(),
@@ -855,19 +920,25 @@ export function registerDictation(): void {
     async formatText(text, app) {
       return (await formatForApp(text, { processName: app ?? '', title: '' })).text;
     },
-    pushAudio(chunk, level) {
-      if (!session || session.cancelled) return;
-      session.chunks.push(Buffer.from(chunk));
-      if (Date.now() - lastLevelAt > 50) {
+    captureOpened(id) {
+      const s = session;
+      if (!s || s.id !== id || state.phase !== 'initializing') return;
+      clearTimeout(s.ackTimer);
+      setState({ phase: s.mode === 'popo' ? 'active_popo' : 'active_ptt' });
+      playSound('start');
+      setTimeout(() => { if (session === s) duckMedia(); }, 150);
+    },
+    pushAudio(id, chunk, level) {
+      const s = captures.get(id);
+      if (!s) return;
+      s.chunks.push(Buffer.from(chunk));
+      if (s === session && Date.now() - lastLevelAt > 50) {
         lastLevelAt = Date.now();
         setState({ level });
       }
     },
-    captureEnded(error) {
-      session?.ended.resolve(error ?? null);
-      // cancelled sessions are already detached from `session`
-      pendingCancelled.forEach((s) => s.ended.resolve(error ?? null));
-      pendingCancelled.clear();
+    captureEnded(id, error) {
+      finishCapture(id, error ?? null);
     },
     hideBarFor(ms) {
       getCtx().settings.patch({ flowBarHiddenUntil: Date.now() + ms });

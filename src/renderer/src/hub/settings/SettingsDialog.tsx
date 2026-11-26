@@ -113,7 +113,7 @@ function GeneralSection({ s, patch }: SectionProps) {
         <SettingRow title="Shortcuts" description={<>Hold <Kbd combo={s.shortcuts.ptt[0] ?? 'Not set'} /> and speak.</>}>
           <Button variant="outline" size="sm" onClick={() => setSection('shortcuts')}>Change</Button>
         </SettingRow>
-        <SettingRow title="Mouse Flow" description="Side buttons replace Back and Forward: Dictate starts or stops hands-free dictation; Enter sends your message.">
+        <SettingRow title="Mouse Flow" description="Optionally assign a side button to dictate or press Enter. Browsers use Mouse 4 for Back and Mouse 5 for Forward.">
           <MouseSetup s={s} patch={patch} />
         </SettingRow>
         <SettingRow title="Microphone" description={s.micDeviceId === 'default' ? 'Auto-detect' : s.micDeviceId}>
@@ -166,11 +166,16 @@ function AppLanguageDialog({ open, onClose, s, patch }: SectionProps & { open: b
   </Dialog>;
 }
 
+const MOUSE_BUTTONS = [
+  { value: 0, label: 'Not assigned' },
+  ...[4, 5, 6, 7, 8, 9, 10, 11].map((value) => ({ value, label: value === 11 ? 'Aux Button' : `Mouse ${value}` })),
+];
+
 function MouseSetup({ s, patch }: SectionProps) {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const buttons = [4, 5, 6, 7, 8, 9, 10, 11].map((value) => ({ value, label: value === 11 ? 'Aux Button' : `Mouse ${value}` }));
-  const test = async (kind: 'dictateButton' | 'enterButton') => {
+  const [draft, setDraft] = useState(s.mouseFlow);
+  const record = async (kind: keyof Settings['mouseFlow']) => {
     setStatus(`Press the side button for ${kind === 'dictateButton' ? 'Dictate' : 'Enter'}…`);
     try {
       const combo = await api.settings.recordShortcut();
@@ -180,18 +185,27 @@ function MouseSetup({ s, patch }: SectionProps) {
         setStatus('That was not a supported mouse button. Use Mouse 4–10 or Aux Button.');
         return;
       }
-      await patch({ mouseFlow: { ...s.mouseFlow, [kind]: button } });
+      setDraft((prev) => ({ ...prev, [kind]: button }));
       setStatus(`${button === 11 ? 'Aux Button' : `Mouse ${button}`} detected.`);
     } catch {
-      setStatus('Button test cancelled.');
+      setStatus('Button recording cancelled.');
     }
   };
   const close = () => { api.settings.cancelRecordShortcut(); setOpen(false); setStatus(null); };
+  const save = async () => {
+    try {
+      await patch({ mouseFlow: draft });
+      close();
+    } catch {
+      setStatus('Could not save Mouse Flow settings.');
+    }
+  };
   return <>
-    <Button variant="outline" size="sm" onClick={() => setOpen(true)}>Set up</Button>
-    <Dialog open={open} onClose={close} title="Set up Mouse Flow" description="These mappings replace the buttons’ usual Back and Forward behavior." footer={<><Button variant="ghost" onClick={() => { void patch({ mouseFlow: { dictateButton: 4, enterButton: 5 } }); setStatus('Mouse Flow reset to defaults.'); }}>Reset</Button><Button variant="outline" onClick={close}>Not now</Button><Button onClick={() => { toast('Mouse Flow setup complete!'); close(); }}>Done</Button></>}>
-      <SettingRow title="Dictate" description="Click to start, click again to stop."><div className={styles.inline}><Select value={s.mouseFlow.dictateButton ?? 4} options={buttons} onChange={(dictateButton) => void patch({ mouseFlow: { ...s.mouseFlow, dictateButton } })}/><Button variant="outline" onClick={() => void test('dictateButton')}>Test</Button></div></SettingRow>
-      <SettingRow title="Enter" description="Sends your message."><div className={styles.inline}><Select value={s.mouseFlow.enterButton ?? 5} options={buttons} onChange={(enterButton) => void patch({ mouseFlow: { ...s.mouseFlow, enterButton } })}/><Button variant="outline" onClick={() => void test('enterButton')}>Test</Button></div></SettingRow>
+    <Button variant="outline" size="sm" onClick={() => { setDraft(s.mouseFlow); setOpen(true); }}>Set up</Button>
+    <Dialog open={open} onClose={close} title="Set up Mouse Flow" description="Unassigned buttons keep their usual behavior. An assigned button also triggers Murmur when you press it in another app."
+      footer={<><Button variant="ghost" onClick={() => { setDraft(DEFAULT_SETTINGS.mouseFlow); setStatus(null); }}>Clear both</Button><Button variant="outline" onClick={close}>Cancel</Button><Button onClick={() => void save()}>Save</Button></>}>
+      <SettingRow title="Dictate" description="Press once to start hands-free dictation, then again to stop."><div className={styles.inline}><Select ariaLabel="Dictate button" value={draft.dictateButton ?? 0} options={MOUSE_BUTTONS} onChange={(button) => setDraft((prev) => ({ ...prev, dictateButton: button || null }))}/><Button variant="outline" onClick={() => void record('dictateButton')}>Record button</Button></div></SettingRow>
+      <SettingRow title="Enter" description="Press Enter in the active app. This can send a message."><div className={styles.inline}><Select ariaLabel="Enter button" value={draft.enterButton ?? 0} options={MOUSE_BUTTONS} onChange={(button) => setDraft((prev) => ({ ...prev, enterButton: button || null }))}/><Button variant="outline" onClick={() => void record('enterButton')}>Record button</Button></div></SettingRow>
       {status && <p role="status">{status}</p>}
     </Dialog>
   </>;
@@ -204,11 +218,17 @@ function MicrophoneDialog({ open, onClose, s, patch }: SectionProps & { open: bo
   useEffect(() => {
     if (!open) return;
     void api.engines.listAudioDevices().then(setDevices);
+    let cancelled = false;
+    let context: AudioContext | null = null;
     let stream: MediaStream | null = null;
     let frame = 0;
     void navigator.mediaDevices.getUserMedia({ audio: true }).then((value) => {
+      if (cancelled) {
+        value.getTracks().forEach((track) => track.stop());
+        return;
+      }
       stream = value;
-      const context = new AudioContext();
+      context = new AudioContext();
       const analyser = context.createAnalyser();
       context.createMediaStreamSource(value).connect(analyser);
       const bytes = new Uint8Array(analyser.frequencyBinCount);
@@ -218,8 +238,13 @@ function MicrophoneDialog({ open, onClose, s, patch }: SectionProps & { open: bo
         frame = requestAnimationFrame(draw);
       };
       draw();
-    }).catch(() => setLevel(0));
-    return () => { cancelAnimationFrame(frame); stream?.getTracks().forEach((track) => track.stop()); };
+    }).catch(() => { if (!cancelled) setLevel(0); });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      stream?.getTracks().forEach((track) => track.stop());
+      void context?.close();
+    };
   }, [open]);
   const available = (devices.length ? devices : [{ deviceId: 'default-mic', label: 'Default microphone' }]).filter((device) => !s.micForgottenDeviceIds.includes(device.deviceId));
   const ranked = available.filter((device) => showOther || !/(virtual|loopback|stereo mix|voicemeeter|cable|system audio)/i.test(device.label));

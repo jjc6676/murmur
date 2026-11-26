@@ -24,7 +24,9 @@ export interface MurmurEvents {
   'scratchpad:open': { noteId: string | null };
   'notepad:open': { meetingId: string | null };
   /** Main asks the capture window to start/stop mic (dictation) or mic+system (meeting) capture. */
-  'capture:command': { kind: 'dictation' | 'meeting'; action: 'start' | 'stop' | 'pause' | 'resume'; deviceId: string };
+  'capture:command':
+    | { kind: 'dictation'; action: 'start' | 'stop'; sessionId: string; deviceId: string }
+    | { kind: 'meeting'; action: 'start' | 'stop' | 'pause' | 'resume'; deviceId: string };
   'diff:show': { before: string; after: string; title: string };
   'sound:play': { name: 'start' | 'stop' | 'paste' | 'notification' | 'achievement' };
   /** Main's cursor hit test says the pointer is over (or left) the Flow Bar's controls. */

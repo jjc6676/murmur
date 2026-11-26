@@ -36,10 +36,11 @@ if (!app.requestSingleInstanceLock()) {
     registerFeatures();
     restoreMediaAfterCrash();
     startWatchers();
+    // Warm the capture renderer before enabling hotkeys; it does not request a microphone until needed.
+    ensureCapture();
     setupShortcuts();
     void startAsr();
     warmUia();
-    ensureCapture();
     const s = ctx.settings.get();
     if (s.showFlowBar && (s.onboardingComplete || s.onboardingDeferred)) ensureStatus();
     ctx.settings.onChange((n) => {

@@ -138,16 +138,26 @@ function SetupStep({ substep, next }: { substep: number; next: () => void }) {
   const [asrStatus, setAsrStatus] = useState('');
   useEffect(() => {
     if (substep !== 0) return;
+    let cancelled = false;
     let stream: MediaStream | null = null;
     let frame = 0;
     let context: AudioContext | null = null;
     void navigator.mediaDevices.getUserMedia({ audio: true }).then((media) => {
+      if (cancelled) {
+        media.getTracks().forEach((track) => track.stop());
+        return;
+      }
       stream = media; context = new AudioContext();
       const analyser = context.createAnalyser(); context.createMediaStreamSource(media).connect(analyser);
       const data = new Uint8Array(analyser.fftSize);
       const draw = () => { analyser.getByteTimeDomainData(data); const rms = Math.sqrt(data.reduce((sum, value) => sum + ((value - 128) / 128) ** 2, 0) / data.length); setLevel(Math.min(1, rms * 8)); frame = requestAnimationFrame(draw); }; draw();
-    }).catch(() => setMicError(true));
-    return () => { cancelAnimationFrame(frame); stream?.getTracks().forEach((t) => t.stop()); void context?.close(); };
+    }).catch(() => { if (!cancelled) setMicError(true); });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      stream?.getTracks().forEach((track) => track.stop());
+      void context?.close();
+    };
   }, [substep]);
   useEffect(() => {
     if (substep !== 2) return;

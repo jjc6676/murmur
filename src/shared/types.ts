@@ -6,6 +6,7 @@ export type StyleContext = 'work' | 'email' | 'personal' | 'other';
 export type StyleTone = 'formal' | 'casual' | 'very_casual' | 'excited' | 'gen_z';
 export type LlmProvider = 'claude' | 'codex' | 'none';
 export type DictationMode = 'ptt' | 'popo' | 'command' | 'lens' | 'instruct';
+export type DictationTrigger = 'ptt_hotkey' | 'popo_hotkey' | 'popo_double_tap' | 'mouse' | 'bar_click' | 'tray' | 'onboarding' | 'api';
 
 // ---------------------------------------------------------------- dictation
 export type DictationPhase =
@@ -46,6 +47,7 @@ export interface HistoryEntry {
   numWords: number;
   language: string;
   mode: DictationMode;
+  trigger: DictationTrigger | null;
   cleanupLevel: CleanupLevel;
   styleContext: StyleContext;
   hasAudio: boolean;

@@ -45,9 +45,14 @@ interface RecordingSession {
 
 let state: RecorderState = { phase: 'idle', meetingId: null, startedAt: null, elapsedSec: 0, micLevel: 0, systemLevel: 0, liveSegments: [], error: null, hasCapturedAudio: false, systemAudioAvailable: true, micSilentSec: 0, storageLow: false, sleepGapSec: 0, processingPhase: null };
 let session: RecordingSession | null = null;
-let detectedCall = false;
+let detectedCall: { confirmed: boolean; ignored: boolean } | null = null;
 let detectionTimer: NodeJS.Timeout | null = null;
 let sleepStartedAt: number | null = null;
+let startingNextMeeting = false;
+
+export function getRecordingMeetingId(): string | null {
+  return session?.meetingId ?? null;
+}
 
 function setState(patch: Partial<RecorderState>): void {
   state = { ...state, ...patch };
@@ -194,6 +199,8 @@ export async function startRecording(opts: { title?: string; calendarEventId?: s
   } catch {
     throw new Error('Live transcription is unavailable. Check the local Whisper model in Settings and try again.');
   }
+  // Another start can win while the speech engine is opening.
+  if (session) return state;
   if (!opts.isTourDemo && settings.notetaker.quota.remaining <= 0) throw new Error('Weekly meeting limit reached');
   const meetingId = newId();
   const createdAt = nowIso();
@@ -291,7 +298,7 @@ export async function startRecording(opts: { title?: string; calendarEventId?: s
     target: 'hub',
   }, { max: 1 });
   addNotificationOnce('TranslationAvailable', 'Live meeting translation', 'Translate a transcript while preserving the detected original language.');
-  void ensureCapture().webContents.executeJavaScript(`window.murmurStartMeeting(${JSON.stringify(resolveMicDeviceId())})`, true);
+  void ensureCapture().webContents.executeJavaScript(`window.murmurStartMeeting(${JSON.stringify(resolveMicDeviceId())}, ${JSON.stringify(meetingId)})`, true);
   setTimeout(() => {
     if (session === current && !state.hasCapturedAudio) {
       showToast({ key: 'NoMeetingAudio', title: "Notetaker isn't getting any audio", body: 'Restart Murmur, then record this meeting again.', tone: 'warning', target: 'hub', actions: [{ id: 'dismiss', label: 'Dismiss' }, { id: 'restart', label: 'Restart Murmur' }] }, (action) => {
@@ -557,47 +564,88 @@ export async function stopRecording(reason: StopReason = 'manual'): Promise<Reco
   return state;
 }
 
+export async function startNextMeeting(): Promise<void> {
+  if (session || startingNextMeeting) return;
+  startingNextMeeting = true;
+  try {
+    const now = Date.now();
+    const next = getCtx().db.kvGet<CalendarEvent[]>('notetaker.calendar', []).find((event) => {
+      const start = new Date(event.start).getTime();
+      const end = new Date(event.end).getTime();
+      return Boolean(event.conferenceUrl) && start <= now + 15 * 60_000 && end >= now;
+    });
+    if (next?.conferenceUrl) {
+      await shell.openExternal(next.conferenceUrl);
+      if (!session) await startRecording({ title: next.title, calendarEventId: next.id });
+    } else {
+      await startRecording();
+    }
+  } finally {
+    startingNextMeeting = false;
+  }
+}
+
 export async function toggleRecording(): Promise<void> {
-  if (session) {
-    await stopRecording();
-    return;
-  }
-  const now = Date.now();
-  const next = getCtx().db.kvGet<CalendarEvent[]>('notetaker.calendar', []).find((event) => {
-    const start = new Date(event.start).getTime();
-    const end = new Date(event.end).getTime();
-    return Boolean(event.conferenceUrl) && start <= now + 15 * 60_000 && end >= now;
-  });
-  if (next?.conferenceUrl) {
-    await shell.openExternal(next.conferenceUrl);
-    await startRecording({ title: next.title, calendarEventId: next.id });
-    return;
-  }
-  await startRecording();
+  if (session) await stopRecording();
+  else await startNextMeeting();
 }
 
 function isMeetingApp(processName: string, title: string): boolean {
-  return /(zoom|cpthost|ms-teams|teams|webex|slack|chrome|msedge|firefox)/i.test(processName)
-    && /(meet\.google\.com|app\.zoom\.us|teams\.microsoft\.com|webex|huddle|Meet -|Zoom Meeting|Microsoft Teams)/i.test(title);
+  switch (processName) {
+    case 'zoom':
+    case 'cpthost': return /Zoom Meeting/i.test(title);
+    case 'teams':
+    case 'ms-teams': return /Microsoft Teams|teams\.microsoft\.com/i.test(title);
+    case 'webex':
+    case 'webexhost': return /Webex/i.test(title);
+    case 'slack': return /Huddle/i.test(title);
+    case 'chrome':
+    case 'msedge':
+    case 'firefox': return /meet\.google\.com|app\.zoom\.us|teams\.microsoft\.com|^Meet -|^Zoom Meeting\b/i.test(title);
+    default: return false;
+  }
 }
 
 function pollMeetingApps(): void {
   const settings = getCtx().settings.get().notetaker;
-  if (!settings.autoDetectCalls) return;
+  if (!settings.autoDetectCalls) {
+    detectedCall = null;
+    return;
+  }
   const app = getForegroundApp();
-  const browserMeeting = ['meet.google.com', 'app.zoom.us', 'Meet -', 'Zoom Meeting', 'Microsoft Teams', 'Webex', 'Huddle'].flatMap((needle) => findWindows(needle))[0];
-  const active = isMeetingApp(app.processName, app.title) || Boolean(browserMeeting);
-  if (active && !detectedCall) {
-    detectedCall = true;
-    const title = app.title || browserMeeting?.title || 'Untitled meeting';
-    if (settings.autoStart && !session) void startRecording({ title });
-    else if (!session && settings.detectionAction === 'notify') showToast({ key: 'MeetingDetected', title: "Looks like you're in a meeting", body: title, target: 'bar', actions: [{ id: 'start', label: 'Start Notetaker' }, { id: 'ignore', label: 'Not now' }] }, (action) => {
+  // Auto-start needs the foreground meeting process/browser AND its corresponding call window.
+  // A title match alone (including a background tab or help page) can only offer a notification.
+  const confirmed = isMeetingApp(app.processName, app.title);
+  let title = confirmed ? app.title : '';
+  if (!confirmed) {
+    for (const needle of ['meet.google.com', 'app.zoom.us', 'teams.microsoft.com', 'Meet -', 'Zoom Meeting', 'Teams', 'Webex', 'Huddle']) {
+      const match = findWindows(needle)[0];
+      if (match) { title = match.title; break; }
+    }
+  }
+  if (!title) {
+    const ended = detectedCall;
+    detectedCall = null;
+    if (ended?.confirmed && settings.stopWhenCallEnds && session) void stopRecording('call_end');
+    return;
+  }
+  const firstMatch = !detectedCall;
+  const call = detectedCall ??= { confirmed: false, ignored: false };
+  const newlyConfirmed = confirmed && !call.confirmed;
+  if (confirmed) call.confirmed = true;
+  if (session || call.ignored) return;
+  if (newlyConfirmed && settings.autoStart) {
+    void startRecording({ title });
+  } else if (firstMatch && settings.detectionAction === 'notify') {
+    showToast({ key: 'MeetingDetected', title: "Looks like you're in a meeting", body: title, target: 'bar', actions: [{ id: 'start', label: 'Start Notetaker' }, { id: 'ignore', label: 'Not now' }] }, (action) => {
+      if (detectedCall !== call || session) return;
       if (action === 'start') {
         getCtx().db.kvSet('notetaker.ignoredPrompts', 0);
         void startRecording({ title });
         return;
       }
       if (action !== 'ignore') return;
+      call.ignored = true;
       const ignored = getCtx().db.kvGet<number>('notetaker.ignoredPrompts', 0) + 1;
       getCtx().db.kvSet('notetaker.ignoredPrompts', ignored);
       if (ignored < 3) return;
@@ -612,9 +660,16 @@ function pollMeetingApps(): void {
         if (nextAction === 'manage') broadcast('settings:open', { section: 'notetaker' });
       });
     });
-  } else if (!active && detectedCall) {
-    detectedCall = false;
-    if (settings.stopWhenCallEnds && session) void stopRecording('call_end');
+  }
+}
+
+function canRetrySystemAudio(meetingId: string): boolean {
+  return session?.meetingId === meetingId && !session.stopping && ['awaiting_audio', 'recording', 'paused'].includes(state.phase);
+}
+
+function retryMeetingSystemAudio(meetingId: string): void {
+  if (canRetrySystemAudio(meetingId) && !state.systemAudioAvailable) {
+    void ensureCapture().webContents.executeJavaScript(`window.murmurRetryMeetingSystemAudio(${JSON.stringify(meetingId)})`, true);
   }
 }
 
@@ -667,20 +722,15 @@ export function registerRecorder(): void {
       return state;
     },
     retrySystemAudio() {
-      if (!session) return state;
-      const micId = getCtx().settings.get().micDeviceId;
-      void ensureCapture().webContents.executeJavaScript(`window.murmurStartMeeting(${JSON.stringify(micId)})`, true);
-      setState({ systemAudioAvailable: true, error: null });
+      if (session) retryMeetingSystemAudio(session.meetingId);
       return state;
     },
-    systemAudioStatus(available, reason) {
+    systemAudioStatus(meetingId, available, reason) {
+      if (!canRetrySystemAudio(meetingId)) return state;
       setState({ systemAudioAvailable: available });
       if (!available) {
         showToast({ key: reason === 'dropped' ? 'SystemAudioDropped' : 'SystemAudioOff', title: reason === 'dropped' ? 'System audio turned off' : 'Only your microphone is recording', body: 'Remote participants may not appear in your transcript.', tone: 'warning', target: 'hub', actions: [{ id: 'retry', label: 'Turn on system audio' }] }, (action) => {
-          if (action === 'retry') {
-            const micId = getCtx().settings.get().micDeviceId;
-            void ensureCapture().webContents.executeJavaScript(`window.murmurStartMeeting(${JSON.stringify(micId)})`, true);
-          }
+          if (action === 'retry') retryMeetingSystemAudio(meetingId);
         });
       }
       return state;

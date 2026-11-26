@@ -93,6 +93,7 @@ export interface Settings {
   stackedMessages: boolean;
   focusMode: { enabled: boolean; blockedApps: string[]; blockedUrls: string[] };
   mouseFlow: { dictateButton: number | null; enterButton: number | null };
+  mouseFlowConfigured: boolean;
   vibeCoding: { variableRecognition: boolean; fileTagging: boolean };
   cursorIdeIntegration: boolean;
   jabraWearDetectionEnabled: boolean;
@@ -206,7 +207,7 @@ export const DEFAULT_STYLE_APPS: Record<StyleContext, string[]> = {
 };
 
 export const DEFAULT_SETTINGS: Settings = {
-  version: 1,
+  version: 2,
   onboardingComplete: false,
   onboardingStep: 'welcome',
   onboardingDeferred: false,
@@ -292,7 +293,8 @@ export const DEFAULT_SETTINGS: Settings = {
   pressEnterCommandEnabled: false,
   stackedMessages: false,
   focusMode: { enabled: false, blockedApps: ['slack', 'superhuman'], blockedUrls: ['hex.com', 'slack.com', 'mail.google.com', 'superhuman.com', 'x.com', 'twitter.com'] },
-  mouseFlow: { dictateButton: 4, enterButton: 5 },
+  mouseFlow: { dictateButton: null, enterButton: null },
+  mouseFlowConfigured: false,
   vibeCoding: { variableRecognition: false, fileTagging: true },
   cursorIdeIntegration: false,
   jabraWearDetectionEnabled: false,

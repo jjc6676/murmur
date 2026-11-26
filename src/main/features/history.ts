@@ -20,6 +20,7 @@ export interface HistoryRow {
   numWords: number;
   language: string;
   mode: HistoryEntry['mode'];
+  trigger: HistoryEntry['trigger'];
   cleanupLevel: HistoryEntry['cleanupLevel'];
   styleContext: HistoryEntry['styleContext'];
   audioPath: string | null;

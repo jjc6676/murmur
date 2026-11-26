@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- Fix: dictation could start by itself. Mouse Flow (side buttons) is now opt-in — existing installs with the old Back/Forward defaults are switched off; hovering the Flow Bar no longer exposes a one-click start (use right-click or ⋯ → Start hands-free dictation).
+- Safer hotkeys: left/right modifiers tracked separately and reconciled with Windows, stale state cleared on lock/sleep, hands-free double-tap requires two clean taps of the same shortcut, and Windows shortcuts like Ctrl+Win+D cancel push-to-talk.
+- The bar shows "Opening microphone…" until capture actually starts; capture failures stop the session immediately; startup no longer opens the microphone to list devices.
+- Tray Start/Stop can no longer flip into the opposite action; title-only meeting matches only notify; each dictation records what started it.
+
 ## 0.4.0
 
 - Transform library: 100 ready-made transforms in 10 collections (Writing & Editing, Tone & Voice, Structure & Formatting, Summarize & Extract, Email, Messaging & Updates, Developer, AI Prompting, Social & Marketing, Language & Translation). Browse, search, preview and add them on the Transforms page; added ones are grouped by collection in My Transforms.

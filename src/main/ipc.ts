@@ -2,6 +2,7 @@
 import { BrowserWindow, ipcMain } from 'electron';
 import type { MurmurEvents } from '@shared/events';
 import { channelOf, eventChannel, type ApiImpl, type ApiNamespace } from '@shared/ipc';
+import { getWindow } from './windows';
 
 let caller: Electron.WebContents | null = null;
 
@@ -15,7 +16,14 @@ export function handle<N extends ApiNamespace>(ns: N, impl: ApiImpl<N>): void {
   for (const [method, fn] of Object.entries(impl as Record<string, (...a: unknown[]) => unknown>)) {
     const ch = channelOf(ns, method);
     ipcMain.removeHandler(ch);
+    const captureOnly = ns === 'dictation' && (method === 'captureOpened' || method === 'pushAudio' || method === 'captureEnded');
     ipcMain.handle(ch, async (e, ...args) => {
+      if (captureOnly || ch === 'dictation:start') {
+        const authorized = captureOnly
+          ? e.sender === getWindow('capture')?.webContents
+          : e.sender === getWindow('status')?.webContents || e.sender === getWindow('hub')?.webContents;
+        if (!authorized || !e.senderFrame || e.senderFrame !== e.sender.mainFrame) throw new Error('Unauthorized dictation request');
+      }
       caller = e.sender;
       try {
         return fn.apply(impl, args);
