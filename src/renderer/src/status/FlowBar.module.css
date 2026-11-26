@@ -32,6 +32,7 @@
 }
 .pillExpanded {
   height: 36px;
+  flex-shrink: 0;
   min-width: 110px;
   padding: 0 6px;
   background: #121212;
@@ -46,7 +47,8 @@
   background: #7f1d1d;
   padding: 0 12px;
 }
-.pill button {
+.pill button,
+.hint {
   -webkit-app-region: no-drag;
 }
 .pillBtn {
@@ -242,7 +244,10 @@
   font-size: 13px;
   text-align: left;
 }
-.menu button:hover {
+.menu button:disabled {
+  opacity: 0.5;
+}
+.menu button:enabled:hover {
   background: rgb(255 255 255 / 0.1);
 }
 

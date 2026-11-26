@@ -1,6 +1,6 @@
 // Floating Flow bar: resting pill, live waveform while dictating, processing/success states, toasts above it.
 import { useEffect, useRef, useState } from 'react';
-import { Check, Copy, EyeOff, Languages, Mic, NotebookPen, Settings as SettingsIcon, Square, StickyNote, WandSparkles, X, History, ClipboardPaste } from 'lucide-react';
+import { Check, Copy, Ellipsis, EyeOff, Languages, Mic, NotebookPen, Settings as SettingsIcon, Square, StickyNote, WandSparkles, X, History, ClipboardPaste } from 'lucide-react';
 import type { DictationState, Toast } from '@shared/types';
 import { api, sendRaw, useEvent } from '../lib/api';
 import { useSettings } from '../lib/settings';
@@ -99,6 +99,7 @@ export function FlowBar() {
   const done = phase === 'completed';
   const expanded = active || busy || done || phase === 'error' || hover || menu;
   const ptt = settings.shortcuts.ptt[0];
+  const voiceDisabled = st?.message === 'Voice-to-text disabled';
   const visibleDevices = devices.filter((device) => showOtherDevices || !/(virtual|loopback|stereo mix|voicemeeter|cable|system audio)/i.test(device.label));
   const hiddenDeviceCount = devices.length - visibleDevices.length;
   if (snoozed && !active && !busy && !toasts.length) return null;
@@ -130,6 +131,12 @@ export function FlowBar() {
 
       {menu && (
         <div className={s.menu} data-hit role="menu">
+          <button type="button" role="menuitem" disabled={phase !== 'resting' || voiceDisabled} onClick={() => { setMenu(false); void api.dictation.start('popo', 'bar_click'); }}>
+            <Mic size={15} /> Start hands-free dictation
+          </button>
+          <button type="button" role="menuitem" disabled={phase !== 'resting'} onClick={() => { setMenu(false); void api.recorder.start(); }}>
+            <NotebookPen size={15} /> Start Notetaker
+          </button>
           <div className={s.menuSection}>Microphone</div>
           {visibleDevices.map((device) => (
             <button key={device.deviceId} type="button" role="menuitemradio" aria-checked={settings.micDeviceId === device.deviceId} onClick={() => void api.settings.patch({ micDeviceId: device.deviceId })}>
@@ -229,18 +236,13 @@ export function FlowBar() {
           </span>
         )}
         {phase === 'error' && <span className={s.label}>{st?.message ?? 'Something went wrong'}</span>}
-        {!active && !busy && !done && phase !== 'error' && hover && (
+        {phase === 'resting' && (hover || menu) && (
           <>
-            <button
-              type="button"
-              className={s.hint}
-              onClick={() => st?.message === 'Voice-to-text disabled' ? void api.app.openSettings('experimental') : void api.dictation.start('popo')}
-              title={st?.message === 'Voice-to-text disabled' ? 'Voice-to-text is disabled for this app' : 'Click to start hands-free dictation'}
-            >
-              {st?.message === 'Voice-to-text disabled' ? 'Voice-to-text disabled' : ptt ? <>Hold <Kbd combo={ptt} /> to dictate</> : 'Click to dictate'}
-            </button>
-            <button type="button" className={s.pillBtn} aria-label="Start Notetaker" title="Start Notetaker" onClick={() => void api.recorder.start()}>
-              <NotebookPen size={14} />
+            <span className={s.hint}>
+              {voiceDisabled ? 'Voice-to-text disabled' : ptt ? <>Hold <Kbd combo={ptt} /> to dictate</> : 'No dictation shortcut set'}
+            </span>
+            <button type="button" className={s.pillBtn} aria-label="Flow Bar menu" title="Flow Bar menu" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu((open) => !open)}>
+              <Ellipsis size={16} />
             </button>
           </>
         )}
