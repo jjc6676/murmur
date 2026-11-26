@@ -36,6 +36,10 @@ private fun Context.shape(color: Int, radius: Int) = GradientDrawable().apply {
 
 internal enum class BubbleMode { IDLE, RECORDING, PROCESSING }
 
+internal object BubbleDebug {
+    @Volatile var visible = false
+}
+
 /** Each window wraps its content; unused screen space always belongs to the underlying app. */
 internal class BubbleOverlay(
     private val context: Context,
@@ -264,6 +268,16 @@ private class BubbleView(
         })
         addView(check, context.dp(48), context.dp(48))
         render(BubbleMode.IDLE)
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        BubbleDebug.visible = true
+    }
+
+    override fun onDetachedFromWindow() {
+        BubbleDebug.visible = false
+        super.onDetachedFromWindow()
     }
 
     private fun decorate(view: View, color: Int, radius: Int, label: String, action: () -> Unit) {

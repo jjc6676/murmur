@@ -144,18 +144,51 @@ class MurmurBubbleService : AccessibilityService(), SharedPreferences.OnSharedPr
     }
 
     private fun focusedField(): AccessibilityNodeInfo? {
-        val node = findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return null
-        if (node.isFocused && node.isEditable && node.isVisibleToUser && !node.isSecret()) {
-            val window = node.window
-            if (window != null) {
-                val usable = window.isFocused && window.type != AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY
-                window.discardWindow()
-                if (usable) return node
+        val node = findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: run {
+            val root = rootInActiveWindow ?: return null
+            try {
+                root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            } finally {
+                root.discardNode()
+            }
+        } ?: return null
+        val window = node.window
+        try {
+            if (window == null || !window.isFocused || window.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) {
+                node.discardNode()
+                return null
+            }
+            // A virtual provider can return its previously focused child. Its current editor
+            // may be a sibling; only search within the same input-focused window.
+            if (node.isFocusable && !node.isFocused) {
+                node.discardNode()
+                return window.root?.takeFocusedEditor()
+            }
+            return node.takeFocusedEditor()
+        } finally {
+            window?.discardWindow()
+        }
+    }
+
+    // API 31 returns the host View when Compose has not yet materialized its focused
+    // semantics node. Inspect descendants' focus flags, never their text. This consumes
+    // the receiver, transferring ownership of only the matching node to the caller.
+    private fun AccessibilityNodeInfo.takeFocusedEditor(): AccessibilityNodeInfo? {
+        if (isFocusedEditor()) return this
+        if (!isSecret()) {
+            for (index in 0 until childCount) {
+                val field = getChild(index)?.takeFocusedEditor() ?: continue
+                discardNode()
+                return field
             }
         }
-        node.discardNode()
+        discardNode()
         return null
     }
+
+    private fun AccessibilityNodeInfo.isFocusedEditor() =
+        isFocused && isEnabled && isVisibleToUser && !isSecret() &&
+            (isEditable || actionList.contains(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_TEXT))
 
     private fun AccessibilityNodeInfo.isSecret(): Boolean {
         if (isPassword) return true
@@ -185,7 +218,7 @@ class MurmurBubbleService : AccessibilityService(), SharedPreferences.OnSharedPr
     private fun sameTarget(owner: Session): Boolean {
         if (session !== owner || !allowed()) return false
         val target = owner.target
-        if (!target.refresh() || !target.isEditable || target.isSecret() || !target.isFocused) return false
+        if (!target.refresh() || !target.isFocusedEditor()) return false
         val field = focusedField() ?: return false
         val same = field == target
         field.discardNode()
