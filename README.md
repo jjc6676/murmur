@@ -34,6 +34,21 @@ LLM provider (Claude / Codex / none) and the whisper model.
 - Other specs run against a temp profile (`MURMUR_USER_DATA`) with the global hook disabled and a fake LLM (`MURMUR_FAKE_LLM=1`).
 - `e2e/packaged.spec.ts` smoke-tests an installed build when `MURMUR_EXE` points at `Murmur.exe`.
 
+## Android
+
+The Android keyboard and companion app live in `android/`. It runs on any 64-bit ARM phone; on ARMv8.2 FP16 CPUs
+(Snapdragon 845-class, 2018+) it loads a faster native library chosen at runtime. The checked-in wrapper uses the
+per-project JDK, Android SDK, NDK, and whisper.cpp source under `android/.toolchain/`; run
+`android/scripts/fetch-deps.ps1` to recreate whisper.cpp at the pinned revision. Release APKs are signed with
+`android/.toolchain/release.jks` (create it once with `android/scripts/create-release-key.ps1`).
+
+```bat
+cd android
+set JAVA_HOME=%CD%\.toolchain\jdk
+set GRADLE_USER_HOME=%CD%\.toolchain\gradle-home
+gradlew.bat test assembleDebug
+```
+
 ## Layout
 
 - `src/main` — Electron main: dictation pipeline (`features/dictation.ts`, `formatting.ts`), hotkeys and Win32/UIA/Core Audio
