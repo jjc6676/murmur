@@ -19,8 +19,9 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PersistableBundle
 import android.os.PowerManager
-import android.os.SystemClock
 import android.text.InputType
+import android.text.Spanned
+import android.text.TextUtils
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
@@ -31,6 +32,7 @@ import com.murmur.android.MurmurApp
 import com.murmur.android.asr.PcmRecorder
 import com.murmur.android.asr.Transcriber
 import com.murmur.android.asr.TranscriptionException
+import com.murmur.android.data.HISTORY_ENABLED
 import com.murmur.android.text.ReplacementRule
 import com.murmur.android.text.TextPipeline
 import kotlinx.coroutines.CancellationException
@@ -58,6 +60,17 @@ class MurmurBubbleService : AccessibilityService(), SharedPreferences.OnSharedPr
     private var scope: CoroutineScope? = null
     private var overlay: BubbleOverlay? = null
     private var session: Session? = null
+    private var preloadJob: Job? = null
+    private var geometryDirty = true
+    private var placedWindowId: Int? = null
+    private val availableBounds = Rect()
+    private val editorWindowBounds = Rect()
+    private val imeBounds = Rect()
+    private val windowBounds = Rect()
+    private val snoozeExpiry = Runnable { availabilityChanged() }
+    private class CopyOffer(val target: AccessibilityNodeInfo, val words: String)
+    private var copyOffer: CopyOffer? = null
+    private val forgetCopy = Runnable { clearCopyOffer() }
     private var updatePending = false
     private val update = Runnable {
         updatePending = false
@@ -67,8 +80,8 @@ class MurmurBubbleService : AccessibilityService(), SharedPreferences.OnSharedPr
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == Intent.ACTION_SCREEN_OFF) {
                 cancelSession()
-                overlay?.hide()
-            } else scheduleUpdate()
+                hideBubble()
+            } else availabilityChanged()
         }
     }
 
@@ -79,49 +92,81 @@ class MurmurBubbleService : AccessibilityService(), SharedPreferences.OnSharedPr
         scope = serviceScope
         overlay = BubbleOverlay(this, settings, ::start, ::finish, ::cancelSession) { session?.recorder?.level ?: 0f }
         settings.registerOnSharedPreferenceChangeListener(this)
-        val filter = IntentFilter(Intent.ACTION_SCREEN_OFF).apply { addAction(Intent.ACTION_USER_PRESENT) }
+        val filter = IntentFilter(Intent.ACTION_SCREEN_OFF).apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+            addAction(Intent.ACTION_TIME_CHANGED)
+        }
         ContextCompat.registerReceiver(this, screenReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
-        serviceScope.launch {
-            try {
-                Transcriber.preload(applicationContext)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                // Preload is opportunistic; the next requested transcription reports model errors.
+        availabilityChanged()
+    }
+
+    private fun availabilityChanged() {
+        val serviceScope = scope ?: return
+        handler.removeCallbacks(snoozeExpiry)
+        val until = settings.getLong("bubble_snoozed_until", 0L)
+        val now = System.currentTimeMillis()
+        val enabled = settings.getBoolean("bubble_enabled", true)
+        if (enabled && until > now) handler.postDelayed(snoozeExpiry, until - now)
+        if (!enabled || until > now) {
+            preloadJob?.cancel()
+            preloadJob = null
+        } else if (preloadJob == null) {
+            preloadJob = serviceScope.launch {
+                if (!bubbleAvailable()) return@launch
+                try {
+                    Transcriber.preload(applicationContext)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // The requested transcription reports any model error.
+                }
             }
         }
-        scheduleUpdate()
+        updateFocus()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Never carry a live recording across two different editors, even during the debounce.
+        // Recheck immediately while capturing or decoding: a content change can turn
+        // the same focused node into a password field without another focus event.
         val owner = session
-        if (owner != null && event?.eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED && !sameTarget(owner)) {
+        if (owner != null && !sameTarget(owner)) {
             cancelSession()
             if (!owner.inserted) changedFieldNotice()
         }
-        scheduleUpdate()
+        val type = event?.eventType
+        scheduleUpdate(geometryChanged = type == AccessibilityEvent.TYPE_WINDOWS_CHANGED ||
+            type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        scheduleUpdate()
+        scheduleUpdate(geometryChanged = true)
     }
 
     override fun onSharedPreferenceChanged(prefs: SharedPreferences, key: String?) {
-        if (key == null || key == "bubble_enabled" || key == "bubble_snoozed_until") updateFocus()
+        if (key == null || key == "bubble_enabled" || key == "bubble_snoozed_until") availabilityChanged()
     }
 
-    private fun scheduleUpdate() {
+    private fun scheduleUpdate(geometryChanged: Boolean) {
+        if (geometryChanged) geometryDirty = true
         if (scope != null && !updatePending) {
             updatePending = true
             handler.postDelayed(update, 150L)
         }
     }
 
-    private fun allowed() = settings.getBoolean("bubble_enabled", true) &&
-        settings.getLong("bubble_snoozed_until", 0L) <= System.currentTimeMillis() &&
-        power?.isInteractive == true && keyguard?.isDeviceLocked == false
+    private fun bubbleAvailable() = settings.getBoolean("bubble_enabled", true) &&
+        settings.getLong("bubble_snoozed_until", 0L) <= System.currentTimeMillis()
+
+    private fun allowed() = bubbleAvailable() && power?.isInteractive == true &&
+        keyguard?.isDeviceLocked == false && keyguard?.isKeyguardLocked == false
+
+    private fun hideBubble() {
+        placedWindowId = null
+        clearCopyOffer()
+        overlay?.hide()
+    }
 
     private fun updateFocus() {
         val bubble = overlay ?: return
@@ -130,7 +175,14 @@ class MurmurBubbleService : AccessibilityService(), SharedPreferences.OnSharedPr
         val changed = owner != null && owner.target != field
         if (changed) cancelSession()
         try {
-            if (field == null) bubble.hide() else bubble.show(keyboardTop())
+            if (copyOffer?.let { it.target != field } == true) hideBubble()
+            if (field == null) {
+                if (placedWindowId != null) hideBubble()
+            } else if (geometryDirty || placedWindowId != field.windowId) {
+                placeBubble(bubble, field)
+                placedWindowId = field.windowId
+            }
+            geometryDirty = false
         } finally {
             field?.discardNode()
         }
@@ -144,37 +196,50 @@ class MurmurBubbleService : AccessibilityService(), SharedPreferences.OnSharedPr
     }
 
     private fun focusedField(): AccessibilityNodeInfo? {
-        val node = findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: run {
-            val root = rootInActiveWindow ?: return null
+        val node = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (node != null) {
+            val window = node.window
             try {
-                root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                if (window != null && window.isFocusedApplication()) {
+                    if (node.isFocused && node.isSecret()) {
+                        node.discardNode()
+                        return null
+                    }
+                    if (node.isFocusable && !node.isFocused) {
+                        node.discardNode() // A stale virtual child; the editor can be a sibling.
+                    } else {
+                        node.takeFocusedEditor()?.let { return it }
+                    }
+                    return window.root?.takeFocusedEditor()
+                }
             } finally {
-                root.discardNode()
+                window?.discardWindow()
             }
-        } ?: return null
-        val window = node.window
-        try {
-            if (window == null || !window.isFocused || window.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) {
-                node.discardNode()
-                return null
-            }
-            // A virtual provider can return its previously focused child. Its current editor
-            // may be a sibling; only search within the same input-focused window.
-            if (node.isFocusable && !node.isFocused) {
-                node.discardNode()
-                return window.root?.takeFocusedEditor()
-            }
-            return node.takeFocusedEditor()
-        } finally {
-            window?.discardWindow()
+            node.discardNode()
         }
+
+        // No usable global result. Never substitute accessibility focus or another app.
+        var field: AccessibilityNodeInfo? = null
+        for (window in windows) {
+            try {
+                if (field == null && window.isFocusedApplication()) {
+                    field = window.root?.takeFocusedEditor()
+                }
+            } finally {
+                window.discardWindow()
+            }
+        }
+        return field
     }
+
+    private fun AccessibilityWindowInfo.isFocusedApplication() =
+        isFocused && type == AccessibilityWindowInfo.TYPE_APPLICATION
 
     // API 31 returns the host View when Compose has not yet materialized its focused
     // semantics node. Inspect descendants' focus flags, never their text. This consumes
     // the receiver, transferring ownership of only the matching node to the caller.
     private fun AccessibilityNodeInfo.takeFocusedEditor(): AccessibilityNodeInfo? {
-        if (isFocusedEditor()) return this
+        if (isFocusedEditor() && refresh() && isFocusedEditor()) return this
         if (!isSecret()) {
             for (index in 0 until childCount) {
                 val field = getChild(index)?.takeFocusedEditor() ?: continue
@@ -202,22 +267,55 @@ class MurmurBubbleService : AccessibilityService(), SharedPreferences.OnSharedPr
         }
     }
 
-    private fun keyboardTop(): Int? {
-        val bounds = Rect()
-        var top: Int? = null
+    private fun placeBubble(bubble: BubbleOverlay, field: AccessibilityNodeInfo) {
+        editorWindowBounds.setEmpty()
+        imeBounds.setEmpty()
         for (window in windows) {
-            if (window.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
-                window.getBoundsInScreen(bounds)
-                if (!bounds.isEmpty && bounds.top > 0) top = minOf(top ?: bounds.top, bounds.top)
+            try {
+                if (window.id == field.windowId && window.isFocusedApplication()) {
+                    window.getBoundsInScreen(editorWindowBounds)
+                } else if (window.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+                    window.getBoundsInScreen(windowBounds)
+                    imeBounds.union(windowBounds)
+                }
+            } finally {
+                window.discardWindow()
             }
-            window.discardWindow()
         }
-        return top
+        bubble.getSafeDisplayBounds(availableBounds)
+        if (editorWindowBounds.isEmpty || availableBounds.isEmpty) {
+            bubble.show(if (imeBounds.isEmpty) null else imeBounds.top)
+            return
+        }
+        if (!availableBounds.intersect(editorWindowBounds)) availableBounds.setEmpty()
+        if (imeBounds.intersect(availableBounds)) excludeIme(availableBounds, imeBounds)
+        if (availableBounds.isEmpty) {
+            // A fullscreen IME can leave no room even for a cancel button.
+            cancelSession()
+            clearCopyOffer()
+        }
+        bubble.showInBounds(availableBounds)
     }
 
-    private fun sameTarget(owner: Session): Boolean {
-        if (session !== owner || !allowed()) return false
-        val target = owner.target
+    // The overlay accepts one rectangle. Choose the largest unobstructed strip;
+    // a floating keyboard need not take the entire width of a split-screen app.
+    private fun excludeIme(bounds: Rect, ime: Rect) {
+        val above = (ime.top - bounds.top).toLong() * bounds.width()
+        val below = (bounds.bottom - ime.bottom).toLong() * bounds.width()
+        val left = (ime.left - bounds.left).toLong() * bounds.height()
+        val right = (bounds.right - ime.right).toLong() * bounds.height()
+        when (maxOf(maxOf(above, below), maxOf(left, right))) {
+            above -> bounds.bottom = ime.top
+            below -> bounds.top = ime.bottom
+            left -> bounds.right = ime.left
+            else -> bounds.left = ime.right
+        }
+    }
+
+    private fun sameTarget(owner: Session) = session === owner && stillFocused(owner.target)
+
+    private fun stillFocused(target: AccessibilityNodeInfo): Boolean {
+        if (!allowed()) return false
         if (!target.refresh() || !target.isFocusedEditor()) return false
         val field = focusedField() ?: return false
         val same = field == target
@@ -253,26 +351,29 @@ class MurmurBubbleService : AccessibilityService(), SharedPreferences.OnSharedPr
             microphoneNotice()
             return
         }
+        clearCopyOffer()
         val owner = Session(field)
         session = owner
         overlay?.haptic()
         overlay?.render(BubbleMode.RECORDING)
         owner.job = serviceScope.launch {
             try {
-                val audio = owner.recorder.record() // PcmRecorder caps capture at five minutes.
-                processing(owner)
-                val message = if (audio.durationMs < 100L) "Recording too short" else recognize(owner, audio)
-                if (session === owner && message != null) overlay?.message(message)
+                owner.recorder.withCapture { audio ->
+                    processing(owner)
+                    val message = if (audio.durationMs < 100L) "Recording too short" else recognize(owner, audio)
+                    if (session === owner && message != null) overlay?.message(message)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: TranscriptionException) {
-                overlay?.message("Transcription failed. Check the model in Murmur.")
+                if (session === owner) overlay?.message("Transcription failed. Check the model in Murmur.")
             } catch (_: SecurityException) {
+                if (session !== owner) return@launch
                 if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                     microphoneNotice()
                 } else overlay?.message("Dictation unavailable")
             } catch (_: Exception) {
-                overlay?.message(if (owner.processing) "Dictation failed" else "Microphone unavailable")
+                if (session === owner) overlay?.message(if (owner.processing) "Dictation failed" else "Microphone unavailable")
             } finally {
                 if (session === owner) clearSession(owner)
             }
@@ -317,14 +418,25 @@ class MurmurBubbleService : AccessibilityService(), SharedPreferences.OnSharedPr
         val hasText = result.text.isNotBlank()
         if (!hasText && !result.pressEnter) return "No speech recognized"
         if (!sameTarget(owner)) return "Field changed. Dictation discarded."
-        if (hasText && !insert(owner, result.text)) return "Couldn’t insert dictation in this field"
+        if (hasText) {
+            when (insert(owner, result.text)) {
+                Insertion.VERIFIED -> Unit
+                Insertion.MANUAL -> {
+                    offerCopy(owner, result.text)
+                    return null
+                }
+                Insertion.UNCERTAIN -> return "Couldn’t verify dictation. Check the field."
+            }
+        }
         owner.inserted = hasText
         val entered = !result.pressEnter || enter(owner)
         if (hasText) {
-            // Enter can immediately move focus. Persist only the already accepted insertion.
+            // Enter can immediately move focus. Only a verified insertion reaches here.
             try {
                 withContext(NonCancellable) {
-                    store.addDictation(result.text, TextPipeline.countWords(result.text), audio.durationMs)
+                    if (settings.getBoolean(HISTORY_ENABLED, true)) {
+                        store.addDictation(result.text, TextPipeline.countWords(result.text), audio.durationMs)
+                    }
                 }
             } catch (_: Exception) {
                 return "Inserted, but history could not be saved"
@@ -333,57 +445,99 @@ class MurmurBubbleService : AccessibilityService(), SharedPreferences.OnSharedPr
         return if (entered) null else "This field did not accept Enter"
     }
 
-    private fun insert(owner: Session, words: String): Boolean {
+    private enum class Insertion { VERIFIED, MANUAL, UNCERTAIN }
+
+    private fun insert(owner: Session, words: String): Insertion {
         val target = owner.target
-        val text = target.editorText()
+        val hint = target.isShowingHintText
+        val text = target.plainEditorText() ?: return Insertion.MANUAL
         val start = target.textSelectionStart
         val end = target.textSelectionEnd
-        val edit = TextInsertion.insert(text, start, end, words)
-        val setText = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, edit.text) }
-        if (target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, setText)) {
-            if (sameTarget(owner)) {
-                val cursor = Bundle().apply {
-                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, edit.cursor)
-                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, edit.cursor)
-                }
-                target.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, cursor)
-            }
-            return true
+        val noCaret = start == -1 && end == -1
+        // Out-of-range offsets are evidence of an incomplete snapshot. An unknown
+        // selection in a populated editor is not permission to append or replace.
+        if (!(noCaret && text.isEmpty()) && (start !in 0..text.length || end !in 0..text.length)) {
+            return Insertion.MANUAL
         }
-        if (!sameTarget(owner) || target.editorText() != text ||
-            target.textSelectionStart != start || target.textSelectionEnd != end) return false
-        return paste(owner, edit.inserted)
+        val edit = TextInsertion.insert(text, start, end, words)
+        val args = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, edit.text)
+        }
+        val accepted = target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        if (!sameTarget(owner)) return Insertion.UNCERTAIN
+        if (!accepted) {
+            val unchanged = target.isShowingHintText == hint && target.plainEditorText() == text &&
+                target.textSelectionStart == start && target.textSelectionEnd == end
+            return if (unchanged) Insertion.MANUAL else Insertion.UNCERTAIN
+        }
+        // Never move a selection, issue Enter, or save history based on action acceptance.
+        if (!target.showsText(edit.text)) return Insertion.UNCERTAIN
+        if (target.hasCaret(edit.cursor) ||
+            (noCaret && target.textSelectionStart == -1 && target.textSelectionEnd == -1)) {
+            return Insertion.VERIFIED
+        }
+        val cursor = Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, edit.cursor)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, edit.cursor)
+        }
+        target.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, cursor)
+        return if (sameTarget(owner) && target.showsText(edit.text) && target.hasCaret(edit.cursor)) {
+            Insertion.VERIFIED
+        } else Insertion.UNCERTAIN
     }
 
-    private fun AccessibilityNodeInfo.editorText() = if (isShowingHintText) "" else text?.toString().orEmpty()
+    private fun AccessibilityNodeInfo.hasCaret(offset: Int) =
+        textSelectionStart == offset && textSelectionEnd == offset
 
-    private fun paste(owner: Session, words: String): Boolean {
-        val clipboard = getSystemService(ClipboardManager::class.java) ?: return false
-        val previous = clipboard.primaryClip
-        // Android 10+ conceals the clipboard from background UIDs. A null read outside our
-        // own focused activity is ambiguous: never destroy a clip we cannot back up.
-        if (previous == null && Build.VERSION.SDK_INT >= 29 && owner.target.packageName != packageName) return false
-        val token = SystemClock.elapsedRealtimeNanos()
-        val marker = "com.murmur.android.bubble.clip"
-        val clip = ClipData.newPlainText("Murmur dictation", words).apply {
-            description.extras = PersistableBundle().apply {
-                putLong(marker, token)
-                putBoolean("android.content.extra.IS_SENSITIVE", true)
-            }
+    private fun AccessibilityNodeInfo.showsText(expected: String) =
+        !isShowingHintText && TextUtils.equals(text, expected)
+
+    private fun AccessibilityNodeInfo.plainEditorText(): String? {
+        if (isShowingHintText) return "" // The visible hint is not part of the value.
+        val value = text ?: return null // Withheld text is not a known-empty editor.
+        return when (value) {
+            is String -> value
+            is Spanned -> if (value.getSpans(0, value.length, Any::class.java).isEmpty()) value.toString() else null
+            else -> null // Unknown representation: don't flatten it into a whole-field write.
         }
-        clipboard.setPrimaryClip(clip)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun offerCopy(owner: Session, words: String) {
+        if (!sameTarget(owner)) return
+        clearCopyOffer()
+        copyOffer = CopyOffer(AccessibilityNodeInfo.obtain(owner.target), words)
+        // The overlay's listener can outlive its notice; don't let it retain a transcript.
+        overlay?.message("Copy for manual paste", ::copyForManualPaste)
+        handler.postDelayed(forgetCopy, 6_500L)
+    }
+
+    private fun copyForManualPaste() {
+        val offer = copyOffer ?: return
         try {
-            return sameTarget(owner) && owner.target.performAction(AccessibilityNodeInfo.ACTION_PASTE)
-        } finally {
-            // Do not overwrite a new copy made by the user or by the receiving app.
-            if (clipboard.primaryClipDescription?.extras?.getLong(marker) == token) {
-                when {
-                    previous != null -> clipboard.setPrimaryClip(previous)
-                    Build.VERSION.SDK_INT >= 28 -> clipboard.clearPrimaryClip()
-                    else -> clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
-                }
+            if (!stillFocused(offer.target)) return
+            val clipboard = getSystemService(ClipboardManager::class.java)
+            if (clipboard == null) {
+                overlay?.message("Clipboard unavailable")
+                return
             }
+            val clip = ClipData.newPlainText("Murmur dictation", offer.words).apply {
+                description.extras = PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
+            }
+            clipboard.setPrimaryClip(clip)
+            overlay?.message("Copied. Paste in the field.")
+        } catch (_: SecurityException) {
+            overlay?.message("Clipboard unavailable")
+        } finally {
+            clearCopyOffer()
         }
+    }
+
+    private fun clearCopyOffer() {
+        val offer = copyOffer ?: return
+        copyOffer = null
+        handler.removeCallbacks(forgetCopy)
+        offer.target.discardNode()
     }
 
     private fun enter(owner: Session): Boolean {
@@ -394,19 +548,29 @@ class MurmurBubbleService : AccessibilityService(), SharedPreferences.OnSharedPr
 
     override fun onInterrupt() {
         cancelSession()
-        overlay?.hide()
+        hideBubble()
+    }
+
+    // MurmurApp handles process-wide onTrimMemory; older Android versions may
+    // also deliver the legacy low-memory callback.
+    @Deprecated("Legacy Android memory-pressure callback")
+    override fun onLowMemory() {
+        super.onLowMemory()
+        Transcriber.releaseIfIdle()
     }
 
     private fun disconnect() {
         val serviceScope = scope ?: return
         scope = null
         handler.removeCallbacks(update)
+        handler.removeCallbacks(snoozeExpiry)
+        preloadJob = null
         updatePending = false
         settings.unregisterOnSharedPreferenceChangeListener(this)
         unregisterReceiver(screenReceiver)
         cancelSession()
         serviceScope.cancel()
-        overlay?.hide()
+        hideBubble()
         overlay = null
         Transcriber.release()
     }
