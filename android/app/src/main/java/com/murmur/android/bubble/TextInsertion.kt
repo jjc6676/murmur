@@ -28,7 +28,9 @@ internal object TextInsertion {
             append(words)
             if (appendSpace) append(' ')
         }
-        return Edit(current.replaceRange(start, end, inserted), start + inserted.length, inserted)
+        // Keep an automatic separator with the existing suffix: "hello bright| world".
+        val cursor = start + inserted.length - (if (appendSpace) 1 else 0)
+        return Edit(current.replaceRange(start, end, inserted), cursor, inserted)
     }
 
     private fun String.splitsPair(offset: Int) = offset > 0 && offset < length &&
