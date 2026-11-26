@@ -17,3 +17,7 @@ android/.kotlin/
 android/dist/
 android/keystore.properties
 *.jks
+ios/Frameworks/
+ios/Resources/*.bin
+ios/*.xcodeproj/
+ios/build/

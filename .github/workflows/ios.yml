@@ -1,0 +1,91 @@
+name: Murmur iOS
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Select newest installed Xcode
+        run: |
+          set -euo pipefail
+          xcode=$(printf '%s\n' /Applications/Xcode_[0-9]*.app | sort -V | tail -n 1)
+          sudo xcode-select --switch "$xcode/Contents/Developer"
+          xcodebuild -version
+          xcrun swift --version
+
+      - name: Cache pinned model and framework archive
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ios/Resources/ggml-base.en.bin
+            ios/Frameworks/whisper-b5907-xcframework.zip
+          key: ios-deps-${{ hashFiles('ios/scripts/fetch-deps.sh') }}
+
+      - name: Generate Xcode project
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          bash scripts/fetch-deps.sh
+          xcodegen generate
+
+      - name: Test shared core and build unsigned Release app
+        run: |
+          set -euo pipefail
+          # Use a UDID, not a device name shared by several installed runtimes.
+          udid=$(xcrun simctl list devices available -j | jq -er '
+            [.devices | to_entries[] | select(.key | contains(".iOS-")) |
+             (.key | split(".iOS-")[1] | split("-") | map(tonumber)) as $os |
+             select($os[0] >= 17) | .value[] | select(.name | startswith("iPhone")) |
+             {os: $os, udid: .udid}] | max_by(.os).udid // error("No available iPhone simulator on iOS 17 or newer")')
+          formatter=cat
+          if command -v xcbeautify >/dev/null; then formatter=xcbeautify; fi
+          xcodebuild test -project Murmur.xcodeproj -scheme MurmurCoreTests \
+            -destination "platform=iOS Simulator,id=$udid" -parallel-testing-enabled NO \
+            -derivedDataPath build/DerivedData 2>&1 | "$formatter"
+          xcodebuild -project Murmur.xcodeproj -scheme Murmur -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | "$formatter"
+
+      - name: Package for on-device signing
+        run: |
+          set -euo pipefail
+          mkdir -p build/Payload
+          app=build/Payload/Murmur.app
+          ditto build/DerivedData/Build/Products/Release-iphoneos/Murmur.app "$app"
+          # Identity-free signatures carry the requested entitlements to the re-signer.
+          # Sign nested bundles first. No Apple certificate or provisioning profile is used.
+          for framework in "$app"/Frameworks/*.framework; do
+            codesign --force --sign - --timestamp=none "$framework"
+          done
+          codesign --force --sign - --timestamp=none --entitlements MurmurKeyboard/MurmurKeyboard.entitlements \
+            "$app/PlugIns/MurmurKeyboard.appex"
+          codesign --force --sign - --timestamp=none --entitlements Murmur/Murmur.entitlements "$app"
+          cd build
+          zip -qry Murmur-ios-unsigned.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: Murmur-ios-unsigned
+          path: ios/build/Murmur-ios-unsigned.ipa
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: error
