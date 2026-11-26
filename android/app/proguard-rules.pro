@@ -1,1 +1,3 @@
--keep class com.whispercpp.whisper.** { *; }
+-keep class com.whispercpp.whisper.WhisperLib {
+    native <methods>;
+}
