@@ -89,7 +89,8 @@ final class TextPipelineTests: XCTestCase {
     func testSpokenPunctuationAndNewlines() {
         XCTAssertEqual(TextPipeline.format("hello comma how are you question mark").text, "Hello, how are you?")
         XCTAssertEqual(TextPipeline.format("a period of time").text, "A period of time.")
-        XCTAssertEqual(TextPipeline.format("first line new line second line").text, "First line\nSecond line.")
+        // Disable list layout here: "first" and "second" also form a valid enumeration.
+        XCTAssertEqual(TextPipeline.format("first line new line second line", options: .init(smartFormatting: .init(lists: false))).text, "First line\nSecond line.")
         XCTAssertEqual(TextPipeline.format("hello new paragraph how are you exclamation point").text, "Hello\n\nHow are you!")
         XCTAssertEqual(TextPipeline.format("hello comma", options: .init(smartFormatting: .init(spokenPunctuation: false))).text, "Hello comma.")
     }
