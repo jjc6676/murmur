@@ -21,6 +21,7 @@ import android.view.WindowInsets
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.ViewCompat
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
@@ -52,13 +53,17 @@ internal class BubbleOverlay(
     private val wm = requireNotNull(context.getSystemService(WindowManager::class.java))
     private val bounds = Rect()
     private val hit = Rect()
+    private val requestedBounds = Rect()
+    private val displaySize = Point()
     private var imeTop: Int? = null
+    private var rotation = -1
     private var dragging = false
     private var dragX = 0
     private var dragY = 0
     private var originX = 0
     private var originY = 0
-    private val controls = BubbleView(context, start, finish, cancel, level, ::drag, ::drop)
+    private val controls: BubbleView = BubbleView(context, start, finish, cancel, level, ::drag, ::drop,
+        ::snooze, ::moveBy, ::resetPosition)
     private val notice = label()
     private val target = label().apply {
         text = "✕  Hide for 1 hour"
@@ -90,9 +95,44 @@ internal class BubbleOverlay(
         if (Build.VERSION.SDK_INT >= 30) fitInsetsTypes = 0
     }
 
-    @Suppress("DEPRECATION")
+    init {
+        controls.setOnApplyWindowInsetsListener { view, insets ->
+            if (dragging) {
+                refreshBounds()
+                position()
+            }
+            view.onApplyWindowInsets(insets)
+        }
+    }
+
     fun show(keyboardTop: Int?) {
+        requestedBounds.setEmpty()
         imeTop = keyboardTop
+        refreshBounds()
+        position()
+    }
+
+    /** Service-computed usable region in screen coordinates, excluding the IME. */
+    fun showInBounds(availableBounds: Rect) {
+        if (availableBounds.isEmpty) {
+            hide()
+            return
+        }
+        requestedBounds.set(availableBounds)
+        imeTop = null
+        refreshBounds()
+        position()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun refreshBounds() {
+        val currentRotation = displayRotation()
+        if (rotation != currentRotation && dragging) {
+            controls.clearGesture()
+            dragging = false
+            remove(target)
+        }
+        rotation = currentRotation
         if (Build.VERSION.SDK_INT >= 30) {
             val metrics = wm.currentWindowMetrics
             val display = metrics.bounds
@@ -102,14 +142,17 @@ internal class BubbleOverlay(
             bounds.set(display.left + insets.left, display.top + insets.top,
                 display.right - insets.right, display.bottom - insets.bottom)
         } else {
-            val size = Point()
-            wm.defaultDisplay.getRealSize(size)
+            wm.defaultDisplay.getRealSize(displaySize)
             val insets = controls.rootWindowInsets
             bounds.set(insets?.stableInsetLeft ?: 0, insets?.stableInsetTop ?: context.dp(24),
-                size.x - (insets?.stableInsetRight ?: 0), size.y - (insets?.stableInsetBottom ?: context.dp(48)))
+                displaySize.x - (insets?.stableInsetRight ?: 0), displaySize.y - (insets?.stableInsetBottom ?: context.dp(48)))
         }
-        position()
+        if (!requestedBounds.isEmpty && !bounds.intersect(requestedBounds)) bounds.setEmpty()
+        imeTop?.let { if (it > bounds.top) bounds.bottom = minOf(bounds.bottom, it) }
     }
+
+    @Suppress("DEPRECATION")
+    private fun displayRotation() = controls.display?.rotation ?: wm.defaultDisplay.rotation
 
     fun hide() {
         controls.clearGesture()
@@ -152,12 +195,16 @@ internal class BubbleOverlay(
     }
 
     private fun position() {
+        if (bounds.isEmpty) {
+            hide()
+            return
+        }
         measure(controls)
         val w = controls.measuredWidth
         val h = controls.measuredHeight
         val gap = context.dp(8)
         val idleSize = context.dp(56)
-        val floor = imeTop?.takeIf { it > bounds.top + idleSize }?.coerceAtMost(bounds.bottom) ?: bounds.bottom
+        val floor = bounds.bottom
         val savedX = settings.getInt("bubble_x", -1)
         val savedY = settings.getInt("bubble_y", -1)
         val idleX = if (savedX < 0) bounds.right - idleSize - gap else savedX
@@ -168,6 +215,7 @@ internal class BubbleOverlay(
         place(controls, controlParams, x.coerceIn(bounds.left, maxOf(bounds.left, bounds.right - w)),
             y.coerceIn(bounds.top, maxOf(bounds.top, bottom - h)))
         if (notice.parent != null) placeNotice()
+        if (dragging) positionTarget()
     }
 
     private fun placeNotice() {
@@ -175,7 +223,8 @@ internal class BubbleOverlay(
         val x = (controlParams.x + controls.measuredWidth - notice.measuredWidth)
             .coerceIn(bounds.left, maxOf(bounds.left, bounds.right - notice.measuredWidth))
         val above = controlParams.y - notice.measuredHeight - context.dp(4)
-        place(notice, noticeParams, x, if (above >= bounds.top) above else controlParams.y + controls.measuredHeight)
+        val y = if (above >= bounds.top) above else controlParams.y + controls.measuredHeight
+        place(notice, noticeParams, x, y.coerceIn(bounds.top, maxOf(bounds.top, bounds.bottom - notice.measuredHeight)))
     }
 
     private fun place(view: View, params: WindowManager.LayoutParams, x: Int, y: Int) {
@@ -190,38 +239,87 @@ internal class BubbleOverlay(
         if (view.parent != null) wm.removeViewImmediate(view)
     }
 
+    private fun positionTarget() {
+        if (target.maxWidth != bounds.width()) target.maxWidth = bounds.width()
+        if (target.maxHeight != bounds.height()) target.maxHeight = bounds.height()
+        if (target.isLayoutRequested || target.measuredWidth == 0) measure(target)
+        val w = target.measuredWidth
+        val h = target.measuredHeight
+        val left = bounds.left + (bounds.width() - w) / 2
+        val top = maxOf(bounds.top, bounds.bottom - h - context.dp(16))
+        place(target, targetParams, left, top)
+        val pad = context.dp(8)
+        hit.set(maxOf(bounds.left, left - pad), maxOf(bounds.top, top - pad),
+            minOf(bounds.right, left + w + pad), minOf(bounds.bottom, top + h + pad))
+    }
+
     private fun drag(dx: Int, dy: Int, rawX: Int, rawY: Int) {
+        if (rotation != displayRotation()) {
+            controls.clearGesture()
+            refreshBounds()
+            position()
+            return
+        }
         if (!dragging) {
             dragging = true
             originX = controlParams.x
             originY = controlParams.y
             remove(notice)
-            measure(target)
-            val left = bounds.centerX() - target.measuredWidth / 2
-            val top = bounds.bottom - target.measuredHeight - context.dp(16)
-            place(target, targetParams, left, top)
-            hit.set(left, top, left + target.measuredWidth, top + target.measuredHeight)
-            hit.inset(-context.dp(8), -context.dp(8))
         }
         dragX = originX + dx
         dragY = originY + dy
-        target.setTextColor(if (hit.contains(rawX, rawY)) lavender else cream)
-        target.scaleX = if (hit.contains(rawX, rawY)) 1.1f else 1f
-        target.scaleY = target.scaleX
         position()
+        val overTarget = hit.contains(rawX, rawY)
+        if (target.isActivated != overTarget) {
+            target.isActivated = overTarget
+            target.setTextColor(if (overTarget) ink else cream)
+            target.backgroundTintList = if (overTarget) ColorStateList.valueOf(lavender) else null
+        }
     }
 
     private fun drop(x: Int, y: Int, cancelled: Boolean) {
         if (!dragging) return
+        refreshBounds()
+        if (!dragging || bounds.isEmpty) {
+            position()
+            return
+        }
+        if (!cancelled) positionTarget()
         dragging = false
         remove(target)
         if (!cancelled && hit.contains(x, y)) {
-            settings.edit().putLong("bubble_snoozed_until", System.currentTimeMillis() + 3_600_000L).apply()
-            hide()
+            snooze()
         } else {
             if (!cancelled) settings.edit().putInt("bubble_x", controlParams.x).putInt("bubble_y", controlParams.y).apply()
             position()
         }
+    }
+
+    private fun snooze() {
+        controls.announceForAccessibility("Bubble hidden for one hour")
+        settings.edit().putLong("bubble_snoozed_until", System.currentTimeMillis() + 3_600_000L).apply()
+        hide()
+    }
+
+    private fun moveBy(horizontal: Int, vertical: Int) {
+        val step = context.dp(56)
+        val x = (controlParams.x + horizontal * step).coerceIn(bounds.left,
+            maxOf(bounds.left, bounds.right - controls.width))
+        val y = (controlParams.y + vertical * step).coerceIn(bounds.top,
+            maxOf(bounds.top, bounds.bottom - controls.height - context.dp(8)))
+        if (x == controlParams.x && y == controlParams.y) {
+            controls.announceForAccessibility("Bubble is at the edge")
+            return
+        }
+        settings.edit().putInt("bubble_x", x).putInt("bubble_y", y).apply()
+        position()
+        controls.announceForAccessibility("Bubble moved")
+    }
+
+    private fun resetPosition() {
+        settings.edit().remove("bubble_x").remove("bubble_y").apply()
+        position()
+        controls.announceForAccessibility("Bubble position reset")
     }
 }
 
@@ -234,8 +332,13 @@ private class BubbleView(
     level: () -> Float,
     private val drag: (Int, Int, Int, Int) -> Unit,
     private val drop: (Int, Int, Boolean) -> Unit,
+    snooze: () -> Unit,
+    moveBy: (Int, Int) -> Unit,
+    resetPosition: () -> Unit,
 ) : LinearLayout(context) {
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
+    private val cancelDistance = context.dp(56)
+    private var cancelArmed = false
     private var tracking = false
     private var held = false
     private var moved = false
@@ -251,6 +354,15 @@ private class BubbleView(
     private val wave = Bars(context, level)
     private val cross = icon("✕", "Cancel dictation", lavender, cancel)
     private val check = icon("✓", "Insert dictation", cream, finish)
+    private val holdHint = TextView(context).apply {
+        gravity = Gravity.CENTER
+        textSize = 14f
+        setTextColor(ink)
+        background = context.shape(lavender, 24)
+        val pad = context.dp(12)
+        setPadding(pad, context.dp(6), pad, context.dp(6))
+        minimumHeight = context.dp(48)
+    }
     private var mode = BubbleMode.IDLE
 
     init {
@@ -259,6 +371,12 @@ private class BubbleView(
         val pad = context.dp(4)
         setPadding(pad, pad, pad, pad)
         decorate(logo, lavender, 14, "Start dictation", start)
+        idleAction("Hide for one hour", snooze)
+        idleAction("Move left") { moveBy(-1, 0) }
+        idleAction("Move right") { moveBy(1, 0) }
+        idleAction("Move up") { moveBy(0, -1) }
+        idleAction("Move down") { moveBy(0, 1) }
+        idleAction("Reset position", resetPosition)
         decorate(wave, lavender, 28, "Finish dictation", finish)
         addView(logo, context.dp(48), context.dp(48))
         addView(cross, context.dp(48), context.dp(48))
@@ -267,7 +385,17 @@ private class BubbleView(
             rightMargin = leftMargin
         })
         addView(check, context.dp(48), context.dp(48))
+        addView(holdHint, context.dp(168), WRAP_CONTENT)
         render(BubbleMode.IDLE)
+    }
+
+    private fun idleAction(label: String, action: () -> Unit) {
+        ViewCompat.addAccessibilityAction(logo, label) { _, _ ->
+            if (mode != BubbleMode.IDLE || tracking) false else {
+                action()
+                true
+            }
+        }
     }
 
     override fun onAttachedToWindow() {
@@ -297,19 +425,32 @@ private class BubbleView(
     }
 
     fun render(next: BubbleMode) {
+        val changed = mode != next
         mode = next
         val idle = next == BubbleMode.IDLE
+        val holdRecording = held && next == BubbleMode.RECORDING
         logo.visibility = if (idle) View.VISIBLE else View.GONE
-        cross.visibility = if (idle) View.GONE else View.VISIBLE
+        cross.visibility = if (idle || holdRecording) View.GONE else View.VISIBLE
         wave.visibility = cross.visibility
-        check.visibility = if (next == BubbleMode.RECORDING) View.VISIBLE else View.GONE
+        check.visibility = if (next == BubbleMode.RECORDING && !held) View.VISIBLE else View.GONE
+        holdHint.visibility = if (holdRecording) View.VISIBLE else View.GONE
+        if (holdRecording && changed) showHoldHint()
         wave.mode = next
         wave.isClickable = next == BubbleMode.RECORDING
         wave.contentDescription = if (next == BubbleMode.PROCESSING) "Transcribing…" else "Listening. Tap to finish dictation"
+        if (changed && !holdRecording && !idle) announceForAccessibility(wave.contentDescription)
+    }
+
+    private fun showHoldHint() {
+        val hint = if (cancelArmed) "Release to cancel\nSlide back to keep recording"
+            else "Listening · release to insert\nSlide away to cancel"
+        if (holdHint.text != hint) holdHint.text = hint
+        holdHint.announceForAccessibility(hint)
     }
 
     fun clearGesture() {
         removeCallbacks(longPress)
+        cancelArmed = false
         tracking = false
         held = false
         moved = false
@@ -323,31 +464,42 @@ private class BubbleView(
             downX = event.rawX
             downY = event.rawY
             logo.isPressed = true
-            postDelayed(longPress, 300L)
+            postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
             return true
         }
         if (!tracking) return super.dispatchTouchEvent(event)
         val x = event.rawX.roundToInt()
         val y = event.rawY.roundToInt()
-        when (event.actionMasked) {
-            MotionEvent.ACTION_MOVE -> if (!held) {
-                val dx = event.rawX - downX
-                val dy = event.rawY - downY
-                if (moved || dx * dx + dy * dy > slop * slop) {
-                    moved = true
-                    removeCallbacks(longPress)
-                    logo.isPressed = false
-                    drag(dx.roundToInt(), dy.roundToInt(), x, y)
+        if (event.actionMasked == MotionEvent.ACTION_MOVE || event.actionMasked == MotionEvent.ACTION_UP) {
+            val dx = event.rawX - downX
+            val dy = event.rawY - downY
+            val distanceSquared = dx * dx + dy * dy
+            if (held && mode == BubbleMode.RECORDING) {
+                val away = distanceSquared >= cancelDistance * cancelDistance
+                if (away != cancelArmed) {
+                    cancelArmed = away
+                    showHoldHint()
                 }
+            } else if (!held && (moved || distanceSquared > slop * slop)) {
+                moved = true
+                removeCallbacks(longPress)
+                logo.isPressed = false
+                drag(dx.roundToInt(), dy.roundToInt(), x, y)
             }
+        }
+        if (!tracking) return true // Rotation cancelled a drag during its final move.
+        when (event.actionMasked) {
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> {
                 val wasDrag = moved
                 val wasHold = held
-                val cancelled = event.actionMasked != MotionEvent.ACTION_UP
+                val cancelled = event.actionMasked != MotionEvent.ACTION_UP || (wasHold && cancelArmed)
                 clearGesture()
                 when {
                     wasDrag -> drop(x, y, cancelled)
-                    wasHold && mode == BubbleMode.RECORDING -> if (cancelled) cancel() else finish()
+                    wasHold && mode == BubbleMode.RECORDING -> if (cancelled) {
+                        announceForAccessibility("Dictation cancelled")
+                        cancel()
+                    } else finish()
                     !wasHold && !cancelled -> logo.performClick()
                 }
             }
