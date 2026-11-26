@@ -67,6 +67,8 @@ internal class BubbleOverlay(
     private val notice = label()
     private val target = label().apply {
         text = "✕  Hide for 1 hour"
+        minimumWidth = context.dp(48)
+        minimumHeight = minimumWidth
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
     }
     private val controlParams = params()
@@ -115,7 +117,7 @@ internal class BubbleOverlay(
     /** Service-computed usable region in screen coordinates, excluding the IME. */
     fun showInBounds(availableBounds: Rect) {
         if (availableBounds.isEmpty) {
-            hide()
+            hideUnplaceable()
             return
         }
         requestedBounds.set(availableBounds)
@@ -124,7 +126,6 @@ internal class BubbleOverlay(
         position()
     }
 
-    @Suppress("DEPRECATION")
     private fun refreshBounds() {
         val currentRotation = displayRotation()
         if (rotation != currentRotation && dragging) {
@@ -133,22 +134,28 @@ internal class BubbleOverlay(
             remove(target)
         }
         rotation = currentRotation
+        getSafeDisplayBounds(bounds)
+        if (!requestedBounds.isEmpty && !bounds.intersect(requestedBounds)) bounds.setEmpty()
+        imeTop?.let { if (it > bounds.top) bounds.bottom = minOf(bounds.bottom, it) }
+    }
+
+    /** Writes the display area outside system bars and cutouts, before editor or IME clipping. */
+    @Suppress("DEPRECATION")
+    fun getSafeDisplayBounds(out: Rect) {
         if (Build.VERSION.SDK_INT >= 30) {
             val metrics = wm.currentWindowMetrics
             val display = metrics.bounds
             val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
                 WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
             )
-            bounds.set(display.left + insets.left, display.top + insets.top,
+            out.set(display.left + insets.left, display.top + insets.top,
                 display.right - insets.right, display.bottom - insets.bottom)
         } else {
             wm.defaultDisplay.getRealSize(displaySize)
             val insets = controls.rootWindowInsets
-            bounds.set(insets?.stableInsetLeft ?: 0, insets?.stableInsetTop ?: context.dp(24),
+            out.set(insets?.stableInsetLeft ?: 0, insets?.stableInsetTop ?: context.dp(24),
                 displaySize.x - (insets?.stableInsetRight ?: 0), displaySize.y - (insets?.stableInsetBottom ?: context.dp(48)))
         }
-        if (!requestedBounds.isEmpty && !bounds.intersect(requestedBounds)) bounds.setEmpty()
-        imeTop?.let { if (it > bounds.top) bounds.bottom = minOf(bounds.bottom, it) }
     }
 
     @Suppress("DEPRECATION")
@@ -161,6 +168,11 @@ internal class BubbleOverlay(
         remove(notice)
         remove(target)
         remove(controls)
+    }
+
+    private fun hideUnplaceable() {
+        hide()
+        controls.cancelIfRecording()
     }
 
     fun render(mode: BubbleMode) {
@@ -178,9 +190,10 @@ internal class BubbleOverlay(
         if (controls.parent == null) return
         notice.removeCallbacks(clearNotice)
         notice.text = text
-        notice.maxWidth = bounds.width().coerceAtLeast(1)
         notice.setOnClickListener(if (action == null) null else View.OnClickListener { action() })
         notice.isClickable = action != null
+        notice.minimumWidth = if (action == null) 0 else context.dp(48)
+        notice.minimumHeight = notice.minimumWidth
         if (action == null) noticeParams.flags = noticeParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         else noticeParams.flags = noticeParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
         // A changed touchability flag must be sent even if the notice hasn't moved.
@@ -190,15 +203,17 @@ internal class BubbleOverlay(
     }
 
     private fun measure(view: View) {
-        val free = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-        view.measure(free, free)
+        view.measure(View.MeasureSpec.makeMeasureSpec(bounds.width(), View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(bounds.height(), View.MeasureSpec.AT_MOST))
     }
 
     private fun position() {
-        if (bounds.isEmpty) {
-            hide()
+        val tap = context.dp(48)
+        if (bounds.width() < tap || bounds.height() < tap) {
+            hideUnplaceable()
             return
         }
+        controls.fitTo(bounds.width(), bounds.height())
         measure(controls)
         val w = controls.measuredWidth
         val h = controls.measuredHeight
@@ -219,6 +234,9 @@ internal class BubbleOverlay(
     }
 
     private fun placeNotice() {
+        // WRAP_CONTENT windows are remeasured by WindowManager against the display, not this region.
+        if (notice.maxWidth != bounds.width()) notice.maxWidth = bounds.width()
+        if (notice.maxHeight != bounds.height()) notice.maxHeight = bounds.height()
         measure(notice)
         val x = (controlParams.x + controls.measuredWidth - notice.measuredWidth)
             .coerceIn(bounds.left, maxOf(bounds.left, bounds.right - notice.measuredWidth))
@@ -364,6 +382,10 @@ private class BubbleView(
         minimumHeight = context.dp(48)
     }
     private var mode = BubbleMode.IDLE
+    private var fittedWidth = -1
+    private var fittedHeight = -1
+    private var singleAction = false
+    private var compactHoldHint = false
 
     init {
         gravity = Gravity.CENTER
@@ -385,6 +407,11 @@ private class BubbleView(
             rightMargin = leftMargin
         })
         addView(check, context.dp(48), context.dp(48))
+        check.setOnLongClickListener {
+            cancel()
+            true
+        }
+        check.isLongClickable = false
         addView(holdHint, context.dp(168), WRAP_CONTENT)
         render(BubbleMode.IDLE)
     }
@@ -426,13 +453,11 @@ private class BubbleView(
 
     fun render(next: BubbleMode) {
         val changed = mode != next
+        if (changed) fittedWidth = -1
         mode = next
         val idle = next == BubbleMode.IDLE
         val holdRecording = held && next == BubbleMode.RECORDING
         logo.visibility = if (idle) View.VISIBLE else View.GONE
-        cross.visibility = if (idle || holdRecording) View.GONE else View.VISIBLE
-        wave.visibility = cross.visibility
-        check.visibility = if (next == BubbleMode.RECORDING && !held) View.VISIBLE else View.GONE
         holdHint.visibility = if (holdRecording) View.VISIBLE else View.GONE
         if (holdRecording && changed) showHoldHint()
         wave.mode = next
@@ -441,11 +466,64 @@ private class BubbleView(
         if (changed && !holdRecording && !idle) announceForAccessibility(wave.contentDescription)
     }
 
-    private fun showHoldHint() {
+    fun cancelIfRecording() {
+        if (mode == BubbleMode.RECORDING) cancel()
+    }
+
+    fun fitTo(width: Int, height: Int) {
+        if (width == fittedWidth && height == fittedHeight) return
+        fittedWidth = width
+        fittedHeight = height
+        val tap = context.dp(48)
+        val recording = mode == BubbleMode.RECORDING && !held
+        val column = recording && width < 2 * tap && height >= 2 * tap
+        val single = recording && width < 2 * tap && !column
+        val cols = if (recording && !column && !single) 2 else 1
+        val rows = if (column) 2 else 1
+        val padX = minOf(context.dp(4), (width - cols * tap) / 2)
+        val padY = minOf(context.dp(4), (height - rows * tap) / 2)
+        setPadding(padX, padY, padX, padY)
+        orientation = if (column) VERTICAL else HORIZONTAL
+
+        val expanded = recording || mode == BubbleMode.PROCESSING
+        cross.visibility = if (expanded && !single) View.VISIBLE else View.GONE
+        check.visibility = if (recording) View.VISIBLE else View.GONE
+        // A single 48dp cell cannot show two buttons. Tap inserts; long press cancels.
+        if (singleAction != single) {
+            singleAction = single
+            check.isLongClickable = single
+            check.text = if (single) "✓\nHold: ✕" else "✓"
+            check.textSize = if (single) 12f else 23f
+            check.contentDescription = if (single) "Insert dictation. Touch and hold to cancel" else "Insert dictation"
+            if (single) check.announceForAccessibility(check.contentDescription)
+        }
+
+        val innerWidth = width - 2 * padX
+        val innerHeight = height - 2 * padY
+        val waveParams = wave.layoutParams as LayoutParams
+        val waveWidth = minOf(context.dp(140), innerWidth - cols * tap - waveParams.leftMargin - waveParams.rightMargin)
+        val showWave = expanded && !column && !single && waveWidth >= tap
+        wave.visibility = if (showWave) View.VISIBLE else View.GONE
+        if (showWave) {
+            waveParams.width = waveWidth
+            waveParams.height = minOf(context.dp(56), innerHeight)
+            wave.layoutParams = waveParams
+        }
+        if (holdHint.visibility == View.VISIBLE) {
+            holdHint.maxHeight = innerHeight
+            holdHint.layoutParams = holdHint.layoutParams.apply { this.width = minOf(context.dp(168), innerWidth) }
+            compactHoldHint = innerWidth < context.dp(120) || innerHeight < context.dp(56)
+            showHoldHint(announce = false)
+        }
+    }
+
+    private fun showHoldHint(announce: Boolean = true) {
         val hint = if (cancelArmed) "Release to cancel\nSlide back to keep recording"
             else "Listening · release to insert\nSlide away to cancel"
-        if (holdHint.text != hint) holdHint.text = hint
-        holdHint.announceForAccessibility(hint)
+        val visible = if (!compactHoldHint) hint else if (cancelArmed) "✕" else "●"
+        if (holdHint.text != visible) holdHint.text = visible
+        holdHint.contentDescription = hint
+        if (announce) holdHint.announceForAccessibility(hint)
     }
 
     fun clearGesture() {
