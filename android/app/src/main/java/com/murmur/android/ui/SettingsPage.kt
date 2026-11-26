@@ -1,6 +1,7 @@
 package com.murmur.android.ui
 
 import android.content.SharedPreferences
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,11 +31,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.murmur.android.BuildConfig
 import com.murmur.android.asr.DownloadState
 import com.murmur.android.asr.ModelId
 import com.murmur.android.asr.ModelManager
@@ -52,8 +55,34 @@ internal fun SettingsPage(
     val maxThreads = minOf(4, Runtime.getRuntime().availableProcessors())
     var threads by remember { mutableIntStateOf(prefs.getInt("threads", maxThreads).coerceIn(1, maxThreads)) }
     var haptics by remember { mutableStateOf(prefs.getBoolean("haptics", true)) }
+    val context = LocalContext.current
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Title("Settings", "Murmur is private by design.")
+        Setting("Bubble") {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(
+                    value = status.bubbleEnabled,
+                    role = Role.Switch,
+                    onValueChange = { enabled ->
+                        if (enabled) {
+                            actions.showBubble()
+                        } else {
+                            prefs.edit().putBoolean("bubble_enabled", false).apply()
+                        }
+                    },
+                ),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Show bubble", Modifier.weight(1f))
+                Switch(checked = status.bubbleEnabled, onCheckedChange = null)
+            }
+            OutlinedButton({
+                prefs.edit().putInt("bubble_x", -1).putInt("bubble_y", -1).apply()
+                Toast.makeText(context, "Bubble position reset", Toast.LENGTH_SHORT).show()
+            }) { Text("Reset bubble position") }
+            AccessibilityAccess(status, actions)
+            MicrophoneAccess(status, actions)
+        }
         ModelSettings(models)
         Setting("Transcription threads") {
             Text(threads.toString())
@@ -90,9 +119,7 @@ internal fun SettingsPage(
                 ThemeOption("Dark", theme == "dark") { onTheme("dark") }
             }
         }
-        Setting("Microphone") { MicrophoneAccess(status, actions) }
-        Setting("Keyboard") { KeyboardAccess(status, actions) }
-        Setting("About") { Text("Murmur 0.1.0 · Offline voice dictation") }
+        Setting("About") { Text("Murmur ${BuildConfig.VERSION_NAME} · Offline voice dictation") }
     }
 }
 

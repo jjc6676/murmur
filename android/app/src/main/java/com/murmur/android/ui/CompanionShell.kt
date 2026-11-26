@@ -49,7 +49,7 @@ internal fun CompanionShell(
         Box(Modifier.padding(padding)) {
             key(tab) {
                 when (tab) {
-                    0 -> Home(app.store, showResume, onResumeSetup)
+                    0 -> Home(app.store, status, actions, showResume, onResumeSetup)
                     1 -> Rules(app.store, dictionary = true)
                     2 -> Rules(app.store, dictionary = false)
                     3 -> SettingsPage(app.models, prefs, status, actions, theme, onTheme)

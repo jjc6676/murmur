@@ -1,8 +1,8 @@
 package com.murmur.android
 
 import android.Manifest
-import android.content.ComponentName
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.net.Uri
@@ -11,7 +11,6 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.WindowManager
-import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -28,6 +27,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -35,11 +35,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import com.murmur.android.keyboard.MurmurKeyboardService
+import com.murmur.android.bubble.BubbleStatus
 import com.murmur.android.ui.CompanionShell
 import com.murmur.android.ui.Onboarding
 import com.murmur.android.ui.SetupActions
 import com.murmur.android.ui.SetupStatus
+import kotlinx.coroutines.delay
 
 private val LightColors = lightColorScheme(
     primary = Color(0xFF2F604A),
@@ -55,10 +56,12 @@ private val DarkColors = darkColorScheme(
 
 class MainActivity : ComponentActivity() {
     private val prefs by lazy { getSharedPreferences("settings", MODE_PRIVATE) }
-    private val ime by lazy { getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager }
     private var status by mutableStateOf(SetupStatus())
-    private val selectedImeObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+    private val accessibilityObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
         override fun onChange(selfChange: Boolean) = refreshSetup()
+    }
+    private val bubblePreferences = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "bubble_enabled" || key == "bubble_snoozed_until") refreshSetup()
     }
     private val microphone = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         prefs.edit().putBoolean("microphone_requested", true).apply()
@@ -69,8 +72,13 @@ class MainActivity : ComponentActivity() {
         openAppSettings = {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
         },
-        manageKeyboards = { startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)) },
-        chooseKeyboard = { ime.showInputMethodPicker() },
+        openAccessibilitySettings = { BubbleStatus.openAccessibilitySettings(this) },
+        showBubble = {
+            prefs.edit()
+                .putBoolean("bubble_enabled", true)
+                .putLong("bubble_snoozed_until", 0L)
+                .apply()
+        },
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -83,11 +91,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // Switching from a running keyboard need not pause the companion or change window focus.
+        prefs.registerOnSharedPreferenceChangeListener(bubblePreferences)
         contentResolver.registerContentObserver(
-            Settings.Secure.getUriFor(Settings.Secure.DEFAULT_INPUT_METHOD),
+            Settings.Secure.getUriFor(Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES),
             false,
-            selectedImeObserver,
+            accessibilityObserver,
         )
     }
 
@@ -97,20 +105,21 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        contentResolver.unregisterContentObserver(selectedImeObserver)
+        prefs.unregisterOnSharedPreferenceChangeListener(bubblePreferences)
+        contentResolver.unregisterContentObserver(accessibilityObserver)
         super.onStop()
     }
 
     private fun refreshSetup() {
         val permission = Manifest.permission.RECORD_AUDIO
-        val component = ComponentName(this, MurmurKeyboardService::class.java)
-        val selected = Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+        val snoozedUntil = prefs.getLong("bubble_snoozed_until", 0L)
         status = SetupStatus(
             microphoneGranted = checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED,
             microphoneBlocked = prefs.getBoolean("microphone_requested", false) &&
                 !shouldShowRequestPermissionRationale(permission),
-            keyboardEnabled = ime.enabledInputMethodList.any { it.component == component },
-            keyboardSelected = selected?.let(ComponentName::unflattenFromString) == component,
+            serviceEnabled = BubbleStatus.isServiceEnabled(this),
+            bubbleEnabled = prefs.getBoolean("bubble_enabled", true),
+            snoozedUntil = if (snoozedUntil > System.currentTimeMillis()) snoozedUntil else 0L,
         )
     }
 
@@ -131,6 +140,13 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun Companion() {
         val app = application as MurmurApp
+        val snoozedUntil = status.snoozedUntil
+        LaunchedEffect(snoozedUntil) {
+            if (snoozedUntil != 0L) {
+                delay(snoozedUntil - System.currentTimeMillis())
+                refreshSetup()
+            }
+        }
         var theme by remember { mutableStateOf(prefs.getString("theme", "system") ?: "system") }
         val dark = when (theme) {
             "dark" -> true
@@ -171,7 +187,7 @@ class MainActivity : ComponentActivity() {
                             prefs = prefs,
                             status = status,
                             actions = actions,
-                            showResume = deferred || !status.ready,
+                            showResume = deferred || !status.microphoneGranted,
                             onResumeSetup = {
                                 if (completed) setStep(if (!status.microphoneGranted) 1 else 2)
                                 setRoute(false, false)

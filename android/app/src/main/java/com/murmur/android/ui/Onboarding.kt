@@ -28,17 +28,18 @@ import androidx.compose.ui.unit.dp
 internal data class SetupStatus(
     val microphoneGranted: Boolean = false,
     val microphoneBlocked: Boolean = false,
-    val keyboardEnabled: Boolean = false,
-    val keyboardSelected: Boolean = false,
+    val serviceEnabled: Boolean = false,
+    val bubbleEnabled: Boolean = true,
+    val snoozedUntil: Long = 0L,
 ) {
-    val ready: Boolean get() = microphoneGranted && keyboardEnabled && keyboardSelected
+    val ready: Boolean get() = microphoneGranted && serviceEnabled
 }
 
 internal class SetupActions(
     val requestMicrophone: () -> Unit,
     val openAppSettings: () -> Unit,
-    val manageKeyboards: () -> Unit,
-    val chooseKeyboard: () -> Unit,
+    val openAccessibilitySettings: () -> Unit,
+    val showBubble: () -> Unit,
 )
 
 @Composable
@@ -58,39 +59,47 @@ internal fun Onboarding(
         ) {
             Text("Murmur · ${step + 1} of 4", style = MaterialTheme.typography.labelLarge)
             val title = when (step) {
-                0 -> "Your words, without the cloud."
+                0 -> "Welcome to Murmur"
                 1 -> "Let Murmur hear you"
-                2 -> "Enable Murmur Keyboard"
+                2 -> "Turn on the Murmur bubble"
                 else -> "Try it here"
             }
             Text(title, fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineLarge)
             when (step) {
-                0 -> Text("Private, fast voice dictation powered entirely on your phone.")
+                0 -> Text("Speak instead of typing. Murmur turns your voice into text, even offline.")
                 1 -> {
                     Text("Microphone access is used only while you dictate. Audio never leaves this device.")
                     MicrophoneAccess(status, actions)
                 }
                 2 -> {
-                    Text("Android requires you to enable Murmur Keyboard and select it as your input method.")
-                    KeyboardAccess(status, actions)
+                    Text("The bubble sits above your usual keyboard whenever you’re typing. Tap it to talk, then tap ✓ to insert. Or hold to talk and release to insert.")
+                    Text("In Accessibility settings, choose Murmur and turn it on. Android will show its standard accessibility warning.")
+                    Text("Murmur only reads the focused text field to insert your words. Dictation works offline. Nothing leaves your phone.")
+                    AccessibilityAccess(status, actions)
+                    if (!status.bubbleEnabled || status.snoozedUntil != 0L) {
+                        OutlinedButton(actions.showBubble) { Text("Show bubble now") }
+                    }
                 }
                 3 -> {
-                    Text("Tap the text box, then hold the microphone and speak. Release to insert your words.")
+                    Text("Tap the field, then tap the bubble and say a few words. Tap ✓ to put them here.")
                     TryItField()
                     if (!status.microphoneGranted) MicrophoneAccess(status, actions)
-                    if (!status.keyboardEnabled || !status.keyboardSelected) KeyboardAccess(status, actions)
+                    if (!status.serviceEnabled) AccessibilityAccess(status, actions)
+                    if (!status.bubbleEnabled || status.snoozedUntil != 0L) {
+                        OutlinedButton(actions.showBubble) { Text("Show bubble now") }
+                    }
                 }
             }
             Button(
                 onClick = { if (step == 3) onComplete() else onStep(step + 1) },
                 enabled = when (step) {
                     1 -> status.microphoneGranted
-                    2 -> status.keyboardEnabled && status.keyboardSelected
+                    2 -> status.serviceEnabled && status.bubbleEnabled && status.snoozedUntil == 0L
                     3 -> status.ready
                     else -> true
                 },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(if (step == 3) "Start using Murmur" else "Continue") }
+            ) { Text(if (step == 3) "Done" else "Continue") }
             TextButton(onDefer, Modifier.align(Alignment.CenterHorizontally)) { Text("Finish later") }
         }
     }
@@ -122,9 +131,7 @@ internal fun MicrophoneAccess(status: SetupStatus, actions: SetupActions) {
 }
 
 @Composable
-internal fun KeyboardAccess(status: SetupStatus, actions: SetupActions) {
-    Text(if (status.keyboardEnabled) "Murmur Keyboard enabled" else "Murmur Keyboard not enabled")
-    OutlinedButton(actions.manageKeyboards) { Text("Manage keyboards") }
-    Text(if (status.keyboardSelected) "Murmur Keyboard selected" else "Murmur Keyboard not selected")
-    OutlinedButton(actions.chooseKeyboard, enabled = status.keyboardEnabled) { Text("Choose keyboard") }
+internal fun AccessibilityAccess(status: SetupStatus, actions: SetupActions) {
+    Text(if (status.serviceEnabled) "Accessibility access is on" else "Accessibility access is off")
+    OutlinedButton(actions.openAccessibilitySettings) { Text("Open settings") }
 }

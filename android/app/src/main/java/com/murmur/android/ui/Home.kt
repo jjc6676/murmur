@@ -45,7 +45,13 @@ import java.util.Date
 private const val PageSize = 50
 
 @Composable
-internal fun Home(store: MurmurStore, showResume: Boolean, onResumeSetup: () -> Unit) {
+internal fun Home(
+    store: MurmurStore,
+    status: SetupStatus,
+    actions: SetupActions,
+    showResume: Boolean,
+    onResumeSetup: () -> Unit,
+) {
     val revision by store.revision.collectAsState()
     val stats by produceState<Stats?>(null, store, revision) { value = store.stats() }
     var query by rememberSaveable { mutableStateOf("") }
@@ -64,8 +70,22 @@ internal fun Home(store: MurmurStore, showResume: Boolean, onResumeSetup: () -> 
     LazyColumn(Modifier.fillMaxSize(), state = list) {
         item {
             Title(greeting, "Everything you say stays on this phone.")
+            if (!status.serviceEnabled || !status.bubbleEnabled) {
+                BubbleNotice(
+                    title = "Murmur bubble is off",
+                    action = "Turn on",
+                    onClick = {
+                        actions.showBubble()
+                        if (!status.serviceEnabled) actions.openAccessibilitySettings()
+                    },
+                )
+            }
+            if (status.snoozedUntil != 0L) {
+                val time = android.text.format.DateFormat.format("HH:mm", status.snoozedUntil)
+                BubbleNotice("Bubble hidden until $time", "Show now", actions.showBubble)
+            }
             if (showResume) {
-                OutlinedButton(onResumeSetup, Modifier.padding(horizontal = 20.dp)) { Text("Resume keyboard setup") }
+                OutlinedButton(onResumeSetup, Modifier.padding(horizontal = 20.dp)) { Text("Resume setup") }
             }
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 20.dp),
@@ -90,7 +110,7 @@ internal fun Home(store: MurmurStore, showResume: Boolean, onResumeSetup: () -> 
             entries == null -> item { Text("Loading history…", Modifier.padding(20.dp)) }
             entries.isEmpty() -> item {
                 val message = if (query.isEmpty()) {
-                    "Your dictations will appear here. Hold the keyboard microphone to begin."
+                    "Tap the bubble in a text field to dictate. Your words will appear here."
                 } else {
                     "No dictations match your search."
                 }
@@ -108,6 +128,16 @@ internal fun Home(store: MurmurStore, showResume: Boolean, onResumeSetup: () -> 
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun BubbleNotice(title: String, action: String, onClick: () -> Unit) {
+    Card(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            OutlinedButton(onClick) { Text(action) }
         }
     }
 }
