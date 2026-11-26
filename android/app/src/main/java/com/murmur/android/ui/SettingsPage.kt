@@ -1,6 +1,7 @@
 package com.murmur.android.ui
 
 import android.content.SharedPreferences
+import android.database.sqlite.SQLiteException
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -22,12 +24,15 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,10 +43,17 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.murmur.android.BuildConfig
+import com.murmur.android.MurmurApp
 import com.murmur.android.asr.DownloadState
 import com.murmur.android.asr.ModelId
 import com.murmur.android.asr.ModelManager
+import com.murmur.android.data.HISTORY_ENABLED
+import com.murmur.android.data.HISTORY_RETENTION_DAYS
+import com.murmur.android.data.KEEP_HISTORY_FOREVER
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+private val retentionOptions = intArrayOf(KEEP_HISTORY_FOREVER, 30, 7, 1)
 
 @Composable
 internal fun SettingsPage(
@@ -83,6 +95,7 @@ internal fun SettingsPage(
             AccessibilityAccess(status, actions)
             MicrophoneAccess(status, actions)
         }
+        HistorySettings(prefs, context.applicationContext as MurmurApp)
         ModelSettings(models)
         Setting("Transcription threads") {
             Text(threads.toString())
@@ -114,12 +127,98 @@ internal fun SettingsPage(
         }
         Setting("Appearance") {
             Column(Modifier.selectableGroup()) {
-                ThemeOption("System", theme == "system") { onTheme("system") }
-                ThemeOption("Light", theme == "light") { onTheme("light") }
-                ThemeOption("Dark", theme == "dark") { onTheme("dark") }
+                RadioOption("System", theme == "system") { onTheme("system") }
+                RadioOption("Light", theme == "light") { onTheme("light") }
+                RadioOption("Dark", theme == "dark") { onTheme("dark") }
             }
         }
         Setting("About") { Text("Murmur ${BuildConfig.VERSION_NAME} · Offline voice dictation") }
+    }
+}
+
+@Composable
+internal fun historySavingEnabled(prefs: SharedPreferences): Boolean =
+    observePreference(prefs, HISTORY_ENABLED) { prefs.getBoolean(HISTORY_ENABLED, true) }
+
+@Composable
+private fun <T> observePreference(prefs: SharedPreferences, key: String, read: () -> T): T {
+    var value by remember(prefs, key) { mutableStateOf(read()) }
+    DisposableEffect(prefs, key) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, changed ->
+            if (changed == key || changed == null) value = read()
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        value = read()
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    return value
+}
+
+@Composable
+private fun HistorySettings(prefs: SharedPreferences, app: MurmurApp) {
+    val enabled = historySavingEnabled(prefs)
+    val retention = observePreference(prefs, HISTORY_RETENTION_DAYS) {
+        prefs.getInt(HISTORY_RETENTION_DAYS, KEEP_HISTORY_FOREVER)
+    }
+    var confirmDelete by rememberSaveable { mutableStateOf(false) }
+
+    Setting("Dictation history") {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(
+                value = enabled,
+                role = Role.Switch,
+                onValueChange = { prefs.edit().putBoolean(HISTORY_ENABLED, it).apply() },
+            ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Save dictation history", Modifier.weight(1f))
+            Switch(checked = enabled, onCheckedChange = null)
+        }
+        Text("Turning this off stops saving new dictations. It does not delete saved history.")
+        Text("Keep saved dictations", style = MaterialTheme.typography.titleSmall)
+        Text("Choosing a shorter period permanently deletes older dictations.")
+        Column(Modifier.selectableGroup()) {
+            for (days in retentionOptions) {
+                val label = when (days) {
+                    KEEP_HISTORY_FOREVER -> "Forever"
+                    1 -> "1 day"
+                    else -> "$days days"
+                }
+                RadioOption(label, days == retention) {
+                    prefs.edit().putInt(HISTORY_RETENTION_DAYS, days).apply()
+                    app.applicationScope.launch {
+                        try {
+                            app.store.pruneHistory(days)
+                        } catch (_: SQLiteException) {
+                            Toast.makeText(app, "Couldn’t delete expired history.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+        }
+        OutlinedButton({ confirmDelete = true }) { Text("Delete all history") }
+    }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete all history?") },
+            text = { Text("This permanently deletes all saved dictations and resets your dictation stats.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    app.applicationScope.launch {
+                        val message = try {
+                            app.store.deleteAllHistory()
+                            "Dictation history deleted."
+                        } catch (_: SQLiteException) {
+                            "Couldn’t delete dictation history."
+                        }
+                        Toast.makeText(app, message, Toast.LENGTH_LONG).show()
+                    }
+                }) { Text("Delete all history") }
+            },
+            dismissButton = { TextButton({ confirmDelete = false }) { Text("Cancel") } },
+        )
     }
 }
 
@@ -167,7 +266,7 @@ private fun ModelSettings(models: ModelManager) {
 }
 
 @Composable
-private fun ThemeOption(label: String, selected: Boolean, onSelect: () -> Unit) {
+private fun RadioOption(label: String, selected: Boolean, onSelect: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected, role = Role.RadioButton, onClick = onSelect),
         verticalAlignment = Alignment.CenterVertically,

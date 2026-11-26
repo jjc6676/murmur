@@ -11,6 +11,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
+internal const val HISTORY_ENABLED = "history_enabled"
+internal const val HISTORY_RETENTION_DAYS = "history_retention_days"
+internal const val KEEP_HISTORY_FOREVER = 0
+
 data class Dictation(
     val id: Long,
     val text: String,
@@ -22,6 +26,7 @@ data class Dictation(
 data class Stats(val totalWords: Long, val averageWpm: Int, val streakDays: Int)
 
 class MurmurStore(context: Context) : SQLiteOpenHelper(context, "murmur.db", null, SCHEMA_VERSION) {
+    private val settings = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
     private val changes = MutableStateFlow(0L)
     val revision: StateFlow<Long> = changes.asStateFlow()
 
@@ -53,6 +58,11 @@ class MurmurStore(context: Context) : SQLiteOpenHelper(context, "murmur.db", nul
                 ?: error("Missing murmur.db migration from $version to ${version + 1}")
             migrate(db)
         }
+    }
+
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        pruneExpired(db, settings.getInt(HISTORY_RETENTION_DAYS, KEEP_HISTORY_FOREVER))
     }
 
     suspend fun history(query: String, limit: Int = 50, offset: Int = 0): List<Dictation> =
@@ -106,6 +116,7 @@ class MurmurStore(context: Context) : SQLiteOpenHelper(context, "murmur.db", nul
     }
 
     suspend fun addDictation(text: String, words: Int, durationMs: Long) = write { db ->
+        pruneExpired(db, settings.getInt(HISTORY_RETENTION_DAYS, KEEP_HISTORY_FOREVER))
         db.execSQL(
             "INSERT INTO dictations(text, words, duration_ms, created_at) VALUES(?, ?, ?, ?)",
             arrayOf(text, words, durationMs, System.currentTimeMillis()),
@@ -114,6 +125,24 @@ class MurmurStore(context: Context) : SQLiteOpenHelper(context, "murmur.db", nul
 
     suspend fun deleteDictation(id: Long) = write { db ->
         db.delete("dictations", "id = ?", arrayOf(id.toString()))
+    }
+
+    suspend fun deleteAllHistory() = write { db ->
+        db.delete("dictations", null, null)
+    }
+
+    suspend fun pruneHistory(retentionDays: Int) {
+        if (retentionDays == KEEP_HISTORY_FOREVER) return
+        withContext(Dispatchers.IO) {
+            if (pruneExpired(writableDatabase, retentionDays) > 0) changes.update { it + 1 }
+        }
+    }
+
+    private fun pruneExpired(db: SQLiteDatabase, retentionDays: Int): Int {
+        require(retentionDays >= 0)
+        if (retentionDays == KEEP_HISTORY_FOREVER) return 0
+        val cutoff = System.currentTimeMillis() - retentionDays * 86_400_000L
+        return db.delete("dictations", "created_at < ?", arrayOf(cutoff.toString()))
     }
 
     suspend fun rules(kind: String): List<Pair<String, String>> = withContext(Dispatchers.IO) {

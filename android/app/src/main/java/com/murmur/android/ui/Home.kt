@@ -52,14 +52,18 @@ internal fun Home(
     showResume: Boolean,
     onResumeSetup: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
+    val historyEnabled = historySavingEnabled(prefs)
     val revision by store.revision.collectAsState()
     val stats by produceState<Stats?>(null, store, revision) { value = store.stats() }
     var query by rememberSaveable { mutableStateOf("") }
     var offset by rememberSaveable { mutableIntStateOf(0) }
-    val rows by key(store, query, revision, offset) {
-        produceState<List<Dictation>?>(null) { value = store.history(query, PageSize + 1, offset) }
-    }
-    val entries = rows
+    val entries = if (historyEnabled) {
+        key(store, query, revision, offset) {
+            produceState<List<Dictation>?>(null) { value = store.history(query, PageSize + 1, offset) }.value
+        }
+    } else null
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
     LaunchedEffect(offset) { list.scrollToItem(0) }
@@ -95,18 +99,26 @@ internal fun Home(
                 Metric(stats?.averageWpm?.takeIf { it > 0 }?.toString() ?: "—", "average WPM", Modifier.weight(1f))
                 Metric(stats?.streakDays?.toString() ?: "—", "day streak", Modifier.weight(1f))
             }
-            OutlinedTextField(
-                value = query,
-                onValueChange = {
-                    query = it
-                    offset = 0
-                },
-                modifier = Modifier.fillMaxWidth().padding(20.dp),
-                singleLine = true,
-                label = { Text("Search dictations") },
-            )
+            if (historyEnabled) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = {
+                        query = it
+                        offset = 0
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(20.dp),
+                    singleLine = true,
+                    label = { Text("Search dictations") },
+                )
+            }
         }
         when {
+            !historyEnabled -> item {
+                Text(
+                    "Dictation history is off. New dictations aren’t saved. Manage saved history in Settings.",
+                    Modifier.padding(20.dp),
+                )
+            }
             entries == null -> item { Text("Loading history…", Modifier.padding(20.dp)) }
             entries.isEmpty() -> item {
                 val message = if (query.isEmpty()) {
