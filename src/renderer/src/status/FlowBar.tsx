@@ -95,14 +95,16 @@ export function FlowBar() {
 
   const phase = st?.phase ?? 'resting';
   const active = phase === 'active_ptt' || phase === 'active_popo';
+  const initializing = phase === 'initializing';
+  const showCaptureControls = initializing || active;
   const busy = phase === 'processing' || phase === 'polish_processing';
   const done = phase === 'completed';
-  const expanded = active || busy || done || phase === 'error' || hover || menu;
+  const expanded = showCaptureControls || busy || done || phase === 'error' || hover || menu;
   const ptt = settings.shortcuts.ptt[0];
   const voiceDisabled = st?.message === 'Voice-to-text disabled';
   const visibleDevices = devices.filter((device) => showOtherDevices || !/(virtual|loopback|stereo mix|voicemeeter|cable|system audio)/i.test(device.label));
   const hiddenDeviceCount = devices.length - visibleDevices.length;
-  if (snoozed && !active && !busy && !toasts.length) return null;
+  if (snoozed && !showCaptureControls && !busy && !toasts.length) return null;
 
   return (
     <div className={s.root} ref={rootRef}>
@@ -201,7 +203,7 @@ export function FlowBar() {
         data-hit
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
-        className={cx(s.pill, expanded && s.pillExpanded, active && s.pillActive, done && s.pillDone, phase === 'error' && s.pillError)}
+        className={cx(s.pill, expanded && s.pillExpanded, showCaptureControls && s.pillCapture, done && s.pillDone, phase === 'error' && s.pillError)}
         onContextMenu={(e) => {
           e.preventDefault();
           setMenu((m) => !m);
@@ -209,18 +211,20 @@ export function FlowBar() {
         data-phase={phase}
         aria-label="Murmur Flow Bar"
       >
-        {active && (
+        {showCaptureControls && (
           <>
             <button type="button" className={s.pillBtn} aria-label="Cancel" title="Cancel (Esc)" onClick={() => void api.dictation.cancel()}>
               <X size={14} />
             </button>
-            <Wave level={st?.level ?? 0} />
-            {phase === 'active_popo' ? (
+            {initializing ? (
+              <span className={s.openingMic} role="status">Opening microphone…</span>
+            ) : (
+              <Wave level={st?.level ?? 0} />
+            )}
+            {phase === 'active_popo' && (
               <button type="button" className={cx(s.pillBtn, s.stopBtn)} aria-label="Finish and paste" title="Finish and paste" onClick={() => void api.dictation.stop()}>
                 <Square size={10} fill="currentColor" />
               </button>
-            ) : (
-              <span className={s.pillBtnSpacer} />
             )}
           </>
         )}
