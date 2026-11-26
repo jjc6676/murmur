@@ -99,6 +99,7 @@ class MurmurBubbleService : AccessibilityService(), SharedPreferences.OnSharedPr
         }
         ContextCompat.registerReceiver(this, screenReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         availabilityChanged()
+        BubbleDebug.connected = true
     }
 
     private fun availabilityChanged() {
@@ -576,6 +577,7 @@ class MurmurBubbleService : AccessibilityService(), SharedPreferences.OnSharedPr
     }
 
     override fun onUnbind(intent: Intent): Boolean {
+        BubbleDebug.connected = false
         disconnect()
         return super.onUnbind(intent)
     }

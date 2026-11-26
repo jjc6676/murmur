@@ -28,6 +28,7 @@ class BubbleInAppTest {
     fun focusingPracticeFieldAttachesBubbleAndRemovingFieldDetachesIt() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         assumeTrue("Enable Murmur's accessibility service to exercise its overlay", BubbleStatus.isServiceEnabled(context))
+        compose.waitUntil(15_000) { BubbleDebug.connected }
         val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
         val previousEnabled = prefs.getBoolean("bubble_enabled", true).takeIf { prefs.contains("bubble_enabled") }
         val previousSnooze = prefs.getLong("bubble_snoozed_until", 0L).takeIf { prefs.contains("bubble_snoozed_until") }

@@ -38,6 +38,7 @@ private fun Context.shape(color: Int, radius: Int) = GradientDrawable().apply {
 internal enum class BubbleMode { IDLE, RECORDING, PROCESSING }
 
 internal object BubbleDebug {
+    @Volatile var connected = false
     @Volatile var visible = false
 }
 
