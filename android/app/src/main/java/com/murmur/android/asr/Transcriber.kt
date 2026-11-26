@@ -18,6 +18,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.FloatBuffer
 
 class TranscriptionException(message: String, cause: Throwable) : Exception(message, cause)
 
@@ -31,6 +32,7 @@ object Transcriber {
         """(?i)\[(?:blank[_ ]audio|silence|music|applause|laughter|inaudible)\]|\((?:silence|music|applause|laughter|inaudible)\)""",
     )
 
+    /** Warm the selected model only when the bubble is enabled and not snoozed. */
     suspend fun preload(context: Context) {
         preloadWithModel(context, null)
     }
@@ -42,47 +44,67 @@ object Transcriber {
     suspend fun transcribe(context: Context, samples: FloatArray, threads: Int? = null): String =
         transcribeWithModel(context, samples, threads, null)
 
+    internal suspend fun transcribe(context: Context, samples: FloatBuffer, threads: Int? = null): String =
+        decode(context, samples, threads, null)
+
     internal suspend fun transcribeWithModel(
         context: Context,
         samples: FloatArray,
         threads: Int?,
         model: ModelId?,
-    ): String {
-        if (samples.isEmpty()) return ""
+    ): String = decode(context, FloatBuffer.wrap(samples), threads, model)
+
+    private suspend fun decode(context: Context, samples: FloatBuffer, threads: Int?, model: ModelId?): String {
+        val sampleCount = samples.limit()
+        if (sampleCount == 0) return ""
         return withModel(context, model) { whisper ->
             val count = threads ?: context.getSharedPreferences("settings", Context.MODE_PRIVATE).getInt("threads", 4)
             val text = try {
                 whisper.transcribeData(samples, count.coerceIn(1, 6))
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: IllegalStateException) {
+                currentCoroutineContext().ensureActive()
                 throw TranscriptionException("Speech decoding failed. Please try again.", e)
             }
             val result = nonSpeech.replace(text, "").trim()
             if (com.murmur.android.BuildConfig.DEBUG) {
                 var peak = 0f
                 var sumSquares = 0.0
-                for (sample in samples) {
+                for (i in 0 until sampleCount) {
+                    val sample = samples.get(i)
                     peak = maxOf(peak, kotlin.math.abs(sample))
                     sumSquares += sample * sample
                 }
-                val rms = kotlin.math.sqrt(sumSquares / samples.size)
-                Log.d("MurmurTranscriber", "samples=${samples.size} peak=$peak rms=$rms chars=${result.length}")
+                val rms = kotlin.math.sqrt(sumSquares / sampleCount)
+                Log.d("MurmurTranscriber", "samples=$sampleCount peak=$peak rms=$rms chars=${result.length}")
             }
             result
+        }
+    }
+
+    /** Memory pressure: do not queue a release behind a load or an active dictation. */
+    fun releaseIfIdle() {
+        if (!mutex.tryLock()) return
+        scope.launch {
+            try {
+                releaseLocked()
+            } finally {
+                mutex.unlock()
+            }
         }
     }
 
     // The caller never blocks Main, even if native inference is still running.
     fun release() {
         scope.launch {
-            mutex.withLock {
-                idleRelease?.cancel()
-                idleRelease = null
-                releaseLocked()
-            }
+            mutex.withLock { releaseLocked() }
         }
     }
 
     private fun releaseLocked() {
+        idleRelease?.cancel()
+        idleRelease = null
         val old = loaded
         loaded = null
         old?.context?.release()
@@ -91,7 +113,7 @@ object Transcriber {
     private suspend fun <T> withModel(
         context: Context,
         model: ModelId?,
-        action: (WhisperContext) -> T,
+        action: suspend (WhisperContext) -> T,
     ): T = withContext(Dispatchers.Default) {
         mutex.withLock {
             idleRelease?.cancel()
@@ -121,7 +143,6 @@ object Transcriber {
                         mutex.withLock {
                             currentCoroutineContext().ensureActive()
                             releaseLocked()
-                            idleRelease = null
                         }
                     }
                 }

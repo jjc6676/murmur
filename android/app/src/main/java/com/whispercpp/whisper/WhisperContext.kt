@@ -1,13 +1,46 @@
 package com.whispercpp.whisper
 
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.File
 import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.FloatBuffer
+
+/** The buffer and all its views are borrowed only for the duration of [use]. */
+internal suspend fun withAudioBuffer(maxSamples: Int, use: suspend (FloatBuffer) -> Unit) {
+    val bytes = try {
+        WhisperLib.allocateAudio(maxSamples)
+    } catch (e: LinkageError) {
+        throw IllegalStateException("Could not load the speech engine on this device.", e)
+    }
+    try {
+        use(bytes.order(ByteOrder.nativeOrder()).asFloatBuffer())
+    } finally {
+        WhisperLib.freeAudio(bytes)
+    }
+}
 
 // Transcriber serializes every operation (including release) on a worker dispatcher.
 internal class WhisperContext private constructor(private var pointer: Long) {
-    fun transcribeData(data: FloatArray, threads: Int): String {
+    suspend fun transcribeData(data: FloatBuffer, threads: Int): String {
         check(pointer != 0L)
-        WhisperLib.fullTranscribe(pointer, threads, data)
+        require(data.position() == 0)
+        val direct = data.isDirect
+        require(if (direct) data.order() == ByteOrder.nativeOrder() else data.hasArray() && data.arrayOffset() == 0)
+        suspendCancellableCoroutine<Unit> { continuation ->
+            val token = ByteBuffer.allocateDirect(1) // Zeroed; only native atomic operations access it.
+            continuation.invokeOnCancellation { WhisperLib.cancelDecode(token) }
+            // Stay on the mutex-owning worker until whisper_full returns, including on cancellation.
+            continuation.resumeWith(runCatching {
+                if (continuation.isActive) {
+                    WhisperLib.fullTranscribe(
+                        pointer, threads, if (direct) null else data.array(), if (direct) data else null,
+                        data.limit(), token,
+                    )
+                }
+            })
+        }
         val segments = WhisperLib.getTextSegmentCount(pointer)
         if (segments == 0) return ""
         if (segments == 1) return WhisperLib.getTextSegment(pointer, 0).decodeToString()
@@ -61,7 +94,12 @@ private object WhisperLib {
 
     external fun initContext(path: String): Long
     external fun freeContext(pointer: Long)
-    external fun fullTranscribe(pointer: Long, threads: Int, audio: FloatArray)
+    external fun allocateAudio(maxSamples: Int): ByteBuffer
+    external fun freeAudio(bytes: ByteBuffer)
+    external fun cancelDecode(token: ByteBuffer)
+    external fun fullTranscribe(
+        pointer: Long, threads: Int, array: FloatArray?, direct: FloatBuffer?, sampleCount: Int, token: ByteBuffer,
+    )
     external fun getTextSegmentCount(pointer: Long): Int
     external fun getTextSegment(pointer: Long, index: Int): ByteArray
 }
